@@ -10,6 +10,10 @@
     "test": "node --experimental-vm-modules node_modules/.bin/jest",
     "lint": "eslint src/ public/"
   },
+  "jest": {
+    "testEnvironment": "node",
+    "transform": {}
+  },
   "keywords": [
     "voicegis",
     "voice",

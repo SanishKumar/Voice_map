@@ -30,7 +30,10 @@ export const LAYER_DEFS = {
     label: 'NASA GIBS Satellite',
     type: 'wms',
     url: 'https://gibs.earthdata.nasa.gov/wms/epsg3857/best/wms.cgi',
-    layers: 'MODIS_Terra_CorrectedReflectance_TrueColor',
+    // BlueMarble_NextGeneration is a static (time-independent) composite product.
+    // Daily/near-real-time products like MODIS_Terra_CorrectedReflectance_TrueColor
+    // require a TIME= WMS parameter; without it the server returns blank tiles.
+    layers: 'BlueMarble_NextGeneration',
     format: 'image/jpeg',
     transparent: false,
     // WMS 1.1.1 with SRS is required by NASA GIBS; 1.3.0 uses CRS and may return blank tiles.
@@ -42,7 +45,10 @@ export const LAYER_DEFS = {
     id: 'bhuvan',
     label: 'Bhuvan (NRSC India)',
     type: 'wms',
-    // Note: Bhuvan WMS may have CORS restrictions for cross-origin browser requests.
+    // ⚠ Bhuvan WMS has CORS restrictions for cross-origin browser requests.
+    // Tiles will fail in most browsers when loaded from a different origin.
+    // This layer is retained in LAYER_DEFS for server-side / proxied use but is
+    // intentionally omitted from the quick-start demo sidebar.
     url: 'https://bhuvan-vec2.nrsc.gov.in/bhuvan/wms',
     layers: 'india_vmap0',
     format: 'image/png',
@@ -58,6 +64,8 @@ export const LAYER_DEFS = {
     // reachable and causes ERR_NAME_NOT_RESOLVED. Replaced with the EEA-hosted CORINE
     // Land Cover 2018 WMS, which is the same Copernicus land-cover product served from a
     // stable, publicly accessible EEA endpoint.
+    // ⚠ This ArcGIS-hosted endpoint may send CORS headers that block browser requests.
+    // If tiles fail to load, a notification is shown and the layer is auto-unchecked.
     url: 'https://image.discomap.eea.europa.eu/arcgis/services/Corine/CLC2018_WM/MapServer/WmsServer',
     layers: '0',
     format: 'image/png',
