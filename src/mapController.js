@@ -74,6 +74,9 @@ const LEAFLET_CRS_MAP = {
   'EPSG:900913': 'EPSG900913',
 };
 
+/** Default map center: Ahmedabad, India [lat, lng]. */
+export const DEFAULT_CENTER = [23.0225, 72.5714];
+
 const DEFAULT_ZOOM = 3;
 
 export class MapController {
@@ -370,6 +373,10 @@ export class MapController {
 
   /** Execute a map mutation and emit an onAction event. */
   _mutate(action, fn, extra = {}) {
+    if (!this._map) {
+      console.warn(`[MapController] Cannot execute "${action}": map not initialised.`);
+      return;
+    }
     const t0 = performance.now();
     fn();
     const latency = performance.now() - t0;
