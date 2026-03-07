@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>VoiceGIS — Basic Leaflet Integration Example</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <style>
+    body { margin: 0; font-family: system-ui, sans-serif; background: #1e293b; color: #f1f5f9; }
+    #map { height: 70vh; }
+    #controls {
+      padding: 16px;
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      background: #0f172a;
+      border-bottom: 1px solid #334155;
+    }
+    button {
+      padding: 9px 18px;
+      background: #2563eb;
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: .9rem;
+    }
+    button.listening { background: #ef4444; }
+    #transcript {
+      padding: 8px 14px;
+      background: #334155;
+      border-radius: 6px;
+      font-size: .9rem;
+      min-width: 240px;
+      color: #94a3b8;
+    }
+    #log {
+      padding: 12px 16px;
+      background: #0f172a;
+      font-size: .82rem;
+      height: calc(30vh - 70px);
+      overflow-y: auto;
+    }
+    .log-line { padding: 3px 0; border-bottom: 1px solid #1e293b; }
+    .log-line.ok  { color: #10b981; }
+    .log-line.err { color: #f59e0b; }
+  </style>
+</head>
+<body>
+
+  <div id="controls">
+    <button id="voice-btn">🎙️ Start Listening</button>
+    <div id="transcript">Say a command…</div>
+  </div>
+
+  <div id="map"></div>
+  <div id="log"><em style="color:#475569">Command log will appear here…</em></div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script type="module">
+    import { SpeechEngine, ENGINE_TYPE } from '../src/speechEngine.js';
+    import { parseCommand, INTENT }       from '../src/commandParser.js';
+    import { MapController, MAP_ENGINE }  from '../src/mapController.js';
+
+    // --- Map setup ---
+    const mapCtrl = new MapController({
+      engine: MAP_ENGINE.LEAFLET,
+      containerId: 'map',
+    });
+    mapCtrl.init();
+
+    // --- Speech engine ---
+    const speech = new SpeechEngine({
+      engine: ENGINE_TYPE.WEB_SPEECH,
+      onResult(text, isFinal) {
+        document.getElementById('transcript').textContent = text;
+        if (!isFinal) return;
+
+        const result = parseCommand(text);
+        logCommand(text, result);
+
+        switch (result.intent) {
+          case INTENT.ZOOM_IN:    mapCtrl.zoomIn();  break;
+          case INTENT.ZOOM_OUT:   mapCtrl.zoomOut(); break;
+          case INTENT.RESET_VIEW: mapCtrl.resetView(); break;
+          case INTENT.GO_TO:      mapCtrl.goTo(result.payload.coords, 12, result.payload.place); break;
+          case INTENT.ADD_MARKER:
+            if (result.payload.useCurrentLocation) {
+              mapCtrl.addMarkerAtCurrentLocation().catch(console.warn);
+            } else {
+              const c = mapCtrl._map.getCenter();
+              mapCtrl.addMarker([c.lat, c.lng], 'Marker');
+            }
+            break;
+          case INTENT.SHOW_LAYER: mapCtrl.showLayer(result.payload.layerId); break;
+          case INTENT.HIDE_LAYER: mapCtrl.hideLayer(result.payload.layerId); break;
+          default:
+            logCommand(text, result);
+        }
+      },
+      onError(e) { console.error(e); },
+    });
+
+    await speech.init();
+
+    // --- Button ---
+    const btn = document.getElementById('voice-btn');
+    btn.addEventListener('click', () => {
+      speech.toggle();
+      btn.textContent = speech.isListening ? '🔴 Listening…' : '🎙️ Start Listening';
+      btn.classList.toggle('listening', speech.isListening);
+    });
+
+    // --- Logging ---
+    function logCommand(text, result) {
+      const log = document.getElementById('log');
+      const div = document.createElement('div');
+      div.className = `log-line ${result.intent !== 'unknown' ? 'ok' : 'err'}`;
+      div.textContent = `"${text}" → ${result.intent}`;
+      // Clear placeholder
+      if (log.querySelector('em')) log.innerHTML = '';
+      log.prepend(div);
+    }
+  </script>
+</body>
+</html>

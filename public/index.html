@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>VoiceGIS — Voice-Enabled Geospatial Map</title>
+
+  <!-- Leaflet -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+
+  <!-- OpenLayers -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ol@v9.2.4/ol.css" />
+
+  <!-- App styles -->
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<div id="app">
+
+  <!-- ── Header ────────────────────────────────────────── -->
+  <header>
+    <div class="logo">Voice<span>GIS</span></div>
+    <div class="tagline">Voice-Enabled Geospatial Map · Leaflet &amp; OpenLayers</div>
+    <button id="help-btn" style="margin-left:auto;background:none;border:1px solid var(--border);color:var(--text-muted);border-radius:6px;padding:4px 12px;cursor:pointer;font-size:.8rem;">
+      ? Commands
+    </button>
+  </header>
+
+  <!-- ── Toolbar ───────────────────────────────────────── -->
+  <div id="toolbar">
+
+    <button id="voice-btn" title="Click or press Space to toggle voice recognition">
+      <span class="mic-icon">🎙️</span>
+      <span id="voice-label">Start Listening</span>
+    </button>
+
+    <div class="ctrl-group">
+      <label for="engine-select">Engine</label>
+      <select id="engine-select" title="Voice recognition engine">
+        <option value="webspeech">Web Speech API</option>
+        <option value="tfjs">TensorFlow.js (keywords)</option>
+      </select>
+    </div>
+
+    <div class="ctrl-group">
+      <label for="map-select">Map</label>
+      <select id="map-select" title="Map rendering library">
+        <option value="leaflet">Leaflet</option>
+        <option value="openlayers">OpenLayers</option>
+      </select>
+    </div>
+
+    <div id="transcript-wrap">
+      <div id="transcript">Say a command…</div>
+    </div>
+
+    <div class="map-btns">
+      <button id="btn-zoom-in"  title="Zoom in">＋</button>
+      <button id="btn-zoom-out" title="Zoom out">－</button>
+      <button id="btn-reset"    title="Reset view">⌂</button>
+      <button id="btn-locate"   title="Go to my location">📍</button>
+    </div>
+
+  </div>
+
+  <!-- ── Map ───────────────────────────────────────────── -->
+  <div id="map-area">
+    <div id="leaflet-map"></div>
+    <div id="ol-map" style="display:none;"></div>
+    <div id="map-overlay">
+      <span id="overlay-msg">Switching map engine…</span>
+    </div>
+  </div>
+
+  <!-- ── Sidebar ───────────────────────────────────────── -->
+  <aside id="sidebar">
+    <div class="tab-bar">
+      <button class="tab-btn active" data-tab="log">📋 Log</button>
+      <button class="tab-btn"        data-tab="layers">🗂️ Layers</button>
+      <button class="tab-btn"        data-tab="stats">📊 Stats</button>
+    </div>
+
+    <!-- Command Log -->
+    <div id="tab-log" class="tab-panel active">
+      <div id="command-log" style="display:flex;flex-direction:column;gap:6px;">
+        <div style="color:var(--text-muted);font-size:.8rem;text-align:center;padding:20px 0;">
+          No commands yet.<br>Click <em>Start Listening</em> and speak!
+        </div>
+      </div>
+    </div>
+
+    <!-- Layers -->
+    <div id="tab-layers" class="tab-panel">
+
+      <div class="layer-item">
+        <span>🗺️ OpenStreetMap</span>
+        <label class="layer-toggle">
+          <input type="checkbox" id="layer-osm" checked data-layer="osm" />
+          <span class="slider"></span>
+        </label>
+      </div>
+
+      <div class="layer-item">
+        <span>🛰️ NASA GIBS Satellite</span>
+        <label class="layer-toggle">
+          <input type="checkbox" id="layer-nasa" data-layer="nasa" />
+          <span class="slider"></span>
+        </label>
+      </div>
+
+      <div class="layer-item">
+        <span>🇮🇳 Bhuvan (NRSC)</span>
+        <label class="layer-toggle">
+          <input type="checkbox" id="layer-bhuvan" data-layer="bhuvan" />
+          <span class="slider"></span>
+        </label>
+      </div>
+
+      <div class="layer-item">
+        <span>🌿 Copernicus Land</span>
+        <label class="layer-toggle">
+          <input type="checkbox" id="layer-copernicus" data-layer="copernicus" />
+          <span class="slider"></span>
+        </label>
+      </div>
+
+      <div class="layer-item">
+        <span>🏔️ OpenTopoMap</span>
+        <label class="layer-toggle">
+          <input type="checkbox" id="layer-terrain" data-layer="terrain" />
+          <span class="slider"></span>
+        </label>
+      </div>
+
+    </div>
+
+    <!-- Stats -->
+    <div id="tab-stats" class="tab-panel">
+
+      <div class="stat-row">
+        <span>Total commands</span>
+        <span class="stat-val" id="stat-total">0</span>
+      </div>
+      <div class="stat-row">
+        <span>Recognised</span>
+        <span class="stat-val" id="stat-recognized">0</span>
+      </div>
+      <div class="stat-row">
+        <span>Unknown</span>
+        <span class="stat-val" id="stat-unknown">0</span>
+      </div>
+      <div class="stat-row">
+        <span>Accuracy</span>
+        <span class="stat-val" id="stat-accuracy">—</span>
+      </div>
+      <div class="stat-row">
+        <span>Avg confidence</span>
+        <span class="stat-val" id="stat-confidence">—</span>
+      </div>
+      <div class="stat-row">
+        <span>Avg latency</span>
+        <span class="stat-val" id="stat-latency">—</span>
+      </div>
+      <div class="stat-row">
+        <span>Session time</span>
+        <span class="stat-val" id="stat-session">—</span>
+      </div>
+
+      <button class="export-btn" id="export-json">⬇ Export JSON</button>
+      <button class="export-btn" id="export-csv" >⬇ Export CSV</button>
+      <button class="export-btn" id="reset-stats" style="color:var(--danger);">🗑 Reset Stats</button>
+
+    </div>
+  </aside>
+
+  <!-- ── Status bar ─────────────────────────────────────── -->
+  <div id="statusbar">
+    <span id="status-engine">Engine: Web Speech API</span>
+    <span id="status-map">Map: Leaflet</span>
+    <span id="status-coords">Lat/Lng: —</span>
+    <span id="status-zoom">Zoom: 3</span>
+  </div>
+
+</div><!-- #app -->
+
+<!-- ── Notifications ─────────────────────────────────────── -->
+<div id="notif-container"></div>
+
+<!-- ── Help / Commands modal ─────────────────────────────── -->
+<div id="help-modal" role="dialog" aria-modal="true" aria-label="Voice commands reference">
+  <div class="modal-box">
+    <h2>🎙️ Voice Commands Reference</h2>
+    <table class="cmd-table">
+      <tr><td>"Zoom in"</td><td>Zoom the map in one level</td></tr>
+      <tr><td>"Zoom out"</td><td>Zoom the map out one level</td></tr>
+      <tr><td>"Go to Paris"</td><td>Fly to a known city</td></tr>
+      <tr><td>"Zoom to Ahmedabad"</td><td>Navigate to Ahmedabad</td></tr>
+      <tr><td>"Show me New York"</td><td>Navigate to New York</td></tr>
+      <tr><td>"Show satellite"</td><td>Enable NASA GIBS layer</td></tr>
+      <tr><td>"Show NASA layer"</td><td>Enable NASA GIBS layer</td></tr>
+      <tr><td>"Show road view"</td><td>Enable OSM street layer</td></tr>
+      <tr><td>"Show terrain"</td><td>Enable topographic layer</td></tr>
+      <tr><td>"Show Bhuvan"</td><td>Enable Bhuvan (India) WMS</td></tr>
+      <tr><td>"Hide satellite"</td><td>Remove NASA GIBS layer</td></tr>
+      <tr><td>"Add marker"</td><td>Drop a pin at current view</td></tr>
+      <tr><td>"Add marker at my location"</td><td>Place marker at GPS location</td></tr>
+      <tr><td>"Switch to OpenLayers"</td><td>Switch map rendering engine</td></tr>
+      <tr><td>"Switch to Leaflet"</td><td>Switch map rendering engine</td></tr>
+      <tr><td>"Reset view"</td><td>Return to world overview</td></tr>
+    </table>
+    <button class="modal-close" id="modal-close-btn">Close</button>
+  </div>
+</div>
+
+<!-- ── External libraries (CDN) ──────────────────────────── -->
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/ol@v9.2.4/dist/ol.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.17.0/dist/tf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/speech-commands@0.5.4/dist/speech-commands.min.js"></script>
+
+<!-- ── Application entry point (ES module) ───────────────── -->
+<script type="module" src="main.js"></script>
+
+</body>
+</html>
