@@ -1,0 +1,39 @@
+{
+  "name": "voicegis",
+  "version": "1.0.0",
+  "description": "Voice-Enabled Geospatial Map Web Application — offline-first voice command interface for Leaflet and OpenLayers",
+  "main": "src/index.js",
+  "type": "module",
+  "scripts": {
+    "start": "python3 -m http.server 8080 --directory public",
+    "serve": "python3 -m http.server 8080",
+    "test": "node --experimental-vm-modules node_modules/.bin/jest",
+    "lint": "eslint src/ public/"
+  },
+  "keywords": [
+    "voicegis",
+    "voice",
+    "gis",
+    "leaflet",
+    "openlayers",
+    "speech",
+    "tensorflow",
+    "maps",
+    "wms",
+    "geospatial"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@tensorflow-models/speech-commands": "^0.5.4",
+    "@tensorflow/tfjs": "^4.17.0",
+    "@tensorflow/tfjs-backend-webgl": "^4.17.0",
+    "leaflet": "^1.9.4",
+    "ol": "^9.2.4",
+    "onnxruntime-web": "^1.18.0"
+  },
+  "devDependencies": {
+    "eslint": "^8.57.0",
+    "jest": "^29.7.0"
+  }
+}
