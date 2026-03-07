@@ -46,13 +46,36 @@ const engine = new SpeechEngine({
   onError(err) { console.error(err); },
   onStart()    { console.log('Listening…'); },
   onEnd()      { console.log('Stopped'); },
-  tfjsThreshold: 0.75,                  // confidence cutoff for TF.js mode
+  tfjsThreshold: 0.85,    // confidence cutoff for TF.js (raised from 0.75 to cut noise)
+  tfjsCooldownMs: 1500,   // ms debounce between consecutive identical TF.js detections
 });
 
 await engine.init();
 engine.start();   // begin listening
 engine.stop();    // stop listening
 engine.toggle();  // toggle on/off
+```
+
+#### Choosing an engine
+
+| | Web Speech API | TF.js |
+|---|---|---|
+| **Accuracy** | High (cloud ASR) | Low–medium (fixed keywords only) |
+| **Internet required** | Yes (Chrome/Edge) | No (fully offline) |
+| **Supported vocabulary** | Free-form sentences | ~10 fixed keywords |
+| **Noise sensitivity** | Low | High |
+| **Best for** | General use | Strict offline requirement |
+
+#### Reducing TF.js noise
+
+The TF.js engine can produce false positives in noisy environments. Mitigations built-in:
+- **Threshold 0.85** — only fire when the model is ≥85% confident (was 0.75).
+- **Debounce 1500 ms** — suppress the same word if it repeats within 1.5 s.
+- **overlapFactor 0.3** — fewer callback invocations per second vs. the default 0.5.
+
+To tune further:
+```js
+new SpeechEngine({ engine: ENGINE_TYPE.TFJS, tfjsThreshold: 0.92, tfjsCooldownMs: 2500 });
 ```
 
 ---
@@ -133,13 +156,18 @@ ctrl.destroy();
 
 **Available layers:**
 
-| id | Name | Source |
-|---|---|---|
-| `osm`        | OpenStreetMap       | `tile.openstreetmap.org` |
-| `nasa`       | NASA GIBS Satellite | `gibs.earthdata.nasa.gov` |
-| `bhuvan`     | Bhuvan (NRSC India) | `bhuvan-vec2.nrsc.gov.in` |
-| `copernicus` | Copernicus Land     | `land.copernicus.vgt.vito.be` |
-| `terrain`    | OpenTopoMap         | `tile.opentopomap.org` |
+| id | Name | Source | Notes |
+|---|---|---|---|
+| `osm`        | OpenStreetMap       | `tile.openstreetmap.org` | ✅ Always works |
+| `nasa`       | NASA GIBS Satellite | `gibs.earthdata.nasa.gov` | ✅ Static BlueMarble layer |
+| `copernicus` | Copernicus Land     | `image.discomap.eea.europa.eu` | ⚠ May be blocked by CORS |
+| `terrain`    | OpenTopoMap         | `tile.opentopomap.org` | ✅ Always works |
+| `bhuvan`     | Bhuvan (NRSC India) | `bhuvan-vec2.nrsc.gov.in` | ❌ CORS-blocked in browsers |
+
+> **Bhuvan note:** The Bhuvan WMS server does not send CORS headers, so browser requests
+> from any origin other than its own domain are blocked. The layer is available in
+> `LAYER_DEFS` for server-side or proxied integrations, but is not shown in the
+> quick-start demo sidebar.
 
 ---
 

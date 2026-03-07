@@ -40,7 +40,12 @@ export class SpeechEngine {
    * @param {function} [options.onStart] - Called when recognition starts
    * @param {function} [options.onEnd]   - Called when recognition ends
    * @param {string}   [options.engine]  - ENGINE_TYPE.WEB_SPEECH or ENGINE_TYPE.TFJS
-   * @param {number}   [options.tfjsThreshold] - Confidence threshold for TF.js (0–1)
+   * @param {number}   [options.tfjsThreshold]  - Confidence threshold for TF.js (0–1).
+   *                                             Higher values reduce false positives.
+   *                                             Default is 0.85 (raised from 0.75 to cut noise).
+   * @param {number}   [options.tfjsCooldownMs] - Minimum ms between consecutive TF.js results
+   *                                             for the same word. Prevents rapid-fire duplicates.
+   *                                             Default is 1500 ms.
    */
   constructor(options = {}) {
     this.onResult = options.onResult || (() => {});
@@ -48,13 +53,19 @@ export class SpeechEngine {
     this.onStart = options.onStart || (() => {});
     this.onEnd = options.onEnd || (() => {});
     this.engineType = options.engine || ENGINE_TYPE.WEB_SPEECH;
-    this.tfjsThreshold = options.tfjsThreshold ?? 0.75;
+    // Raised default threshold from 0.75 → 0.85 to reduce spurious TF.js detections.
+    this.tfjsThreshold = options.tfjsThreshold ?? 0.85;
+    // Minimum gap between repeated recognitions of the same word (debounce).
+    this.tfjsCooldownMs = options.tfjsCooldownMs ?? 1500;
 
     this._recognition = null; // Web Speech API instance
     this._tfjsModel = null;   // TF.js speech commands model
     this._isListening = false;
     this._restartOnEnd = false;
     this._initialized = false; // Set to true after init() succeeds
+    // Debounce state for TF.js: track the last fired word and its timestamp.
+    this._lastTfjsWord = null;
+    this._lastTfjsTime = 0;
   }
 
   /**
@@ -243,16 +254,37 @@ export class SpeechEngine {
           }
         }
 
-        if (maxScore >= this.tfjsThreshold && bestWord && bestWord !== '_background_noise_') {
-          const mapped = TFJS_KEYWORD_MAP[bestWord] || bestWord;
-          this.onResult(mapped, true);
+        // Reject noise / unknown / below-threshold detections.
+        if (
+          maxScore < this.tfjsThreshold ||
+          !bestWord ||
+          bestWord === '_background_noise_' ||
+          bestWord === '_unknown_'
+        ) {
+          return;
         }
+
+        const mapped = TFJS_KEYWORD_MAP[bestWord] || bestWord;
+        const now = Date.now();
+
+        // Debounce: suppress the same word if it was fired within the cooldown window.
+        // This prevents a single spoken word from triggering many rapid-fire actions.
+        if (mapped === this._lastTfjsWord && now - this._lastTfjsTime < this.tfjsCooldownMs) {
+          return;
+        }
+
+        this._lastTfjsWord = mapped;
+        this._lastTfjsTime = now;
+        this.onResult(mapped, true);
       },
       {
         includeSpectrogram: false,
+        // Pass the raised threshold to the model so it also skips low-confidence
+        // frames before even invoking our callback.
         probabilityThreshold: this.tfjsThreshold,
         invokeCallbackOnNoiseAndUnknown: false,
-        overlapFactor: 0.5,
+        // Reduce overlap to lower callback frequency and cut CPU noise.
+        overlapFactor: 0.3,
       }
     );
   }

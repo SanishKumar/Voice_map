@@ -113,20 +113,16 @@
       </div>
 
       <div class="layer-item">
-        <span>🇮🇳 Bhuvan (NRSC)</span>
-        <label class="layer-toggle">
-          <input type="checkbox" id="layer-bhuvan" data-layer="bhuvan" />
-          <span class="slider"></span>
-        </label>
-      </div>
-
-      <div class="layer-item">
-        <span>🌿 Copernicus Land</span>
+        <span title="Copernicus/EEA endpoint — may be blocked by CORS in some browsers">🌿 Copernicus Land <small style="color:var(--text-muted)">(⚠ may fail)</small></span>
         <label class="layer-toggle">
           <input type="checkbox" id="layer-copernicus" data-layer="copernicus" />
           <span class="slider"></span>
         </label>
       </div>
+
+      <!-- Bhuvan WMS omitted from quick-start: server has CORS restrictions that
+           prevent tiles loading in most browsers. Enable programmatically if you
+           have a CORS proxy or are running server-side. -->
 
       <div class="layer-item">
         <span>🏔️ OpenTopoMap</span>
