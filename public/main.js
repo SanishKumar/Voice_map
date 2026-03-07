@@ -83,6 +83,9 @@ function initMap(engine) {
       engine,
       containerId,
       onAction: handleMapAction,
+      // Surface WMS/tile load failures as user notifications and uncheck
+      // the corresponding layer toggle so the UI stays in sync with reality.
+      onLayerError: handleLayerError,
     });
     mapController.init();
     currentMapEngine = engine;
@@ -113,11 +116,14 @@ function updateStatusBar() {
     statusCoords.textContent = `Lat/Lng: ${c.lat.toFixed(4)}, ${c.lng.toFixed(4)}`;
     statusZoom.textContent   = `Zoom: ${mapController._map.getZoom()}`;
   } else {
+    // OpenLayers: zoom is on the View, not the Map object. view.getZoom() may
+    // return undefined during an in-progress animation, so guard against NaN.
     const ol = window.ol;
     const view  = mapController._map.getView();
     const coord = ol.proj.toLonLat(view.getCenter());
+    const zoom  = view.getZoom();
     statusCoords.textContent = `Lat/Lng: ${coord[1].toFixed(4)}, ${coord[0].toFixed(4)}`;
-    statusZoom.textContent   = `Zoom: ${Math.round(view.getZoom())}`;
+    statusZoom.textContent   = `Zoom: ${zoom !== undefined ? Math.round(zoom) : '—'}`;
   }
 }
 
@@ -310,11 +316,40 @@ function executeAction(result) {
 // ---------------------------------------------------------------------------
 
 function handleMapAction({ action, latency }) {
-  statusZoom.textContent = `Zoom: ${
-    currentMapEngine === MAP_ENGINE.LEAFLET
-      ? mapController._map.getZoom()
-      : Math.round(mapController._map.getView().getZoom())
-  }`;
+  // Guard: map may have been destroyed between the action completing and this
+  // callback firing (e.g. during engine switch).
+  if (!mapController || !mapController._map) return;
+
+  // Use the engine-appropriate API to read the current zoom level.
+  // OpenLayers maps do not have a .getZoom() method; the zoom is on the View.
+  if (currentMapEngine === MAP_ENGINE.LEAFLET) {
+    statusZoom.textContent = `Zoom: ${mapController._map.getZoom()}`;
+  } else {
+    const zoom = mapController._map.getView().getZoom();
+    statusZoom.textContent = `Zoom: ${zoom !== undefined ? Math.round(zoom) : '—'}`;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Layer error callback (from MapController)
+// ---------------------------------------------------------------------------
+
+/**
+ * Called by MapController when a WMS or tile layer fails to load.
+ * Unchecks the layer's sidebar toggle and shows a notification so the user
+ * understands why no tiles appeared without seeing a JS exception.
+ *
+ * @param {{ layerId: string, label: string, error: Error }} param0
+ */
+function handleLayerError({ layerId, label, error }) {
+  console.warn(
+    `[VoiceGIS] Layer "${layerId}" (${label}) failed to load.`,
+    'Check for network/DNS/CORS issues or incorrect layer/parameter config.',
+    error,
+  );
+  // Uncheck the sidebar toggle so it doesn't appear "on" while no tiles show.
+  setLayerCheckbox(layerId, false);
+  showNotif(`⚠ Layer "${label || layerId}" failed to load. See console for details.`, 'error');
 }
 
 // ---------------------------------------------------------------------------
