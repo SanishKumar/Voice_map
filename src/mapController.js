@@ -67,7 +67,13 @@ export const LAYER_DEFS = {
   },
 };
 
-const DEFAULT_CENTER = [20, 0];
+/** Map CRS identifiers to Leaflet CRS objects. */
+const LEAFLET_CRS_MAP = {
+  'EPSG:3857': 'EPSG3857',
+  'EPSG:4326': 'EPSG4326',
+  'EPSG:900913': 'EPSG900913',
+};
+
 const DEFAULT_ZOOM = 3;
 
 export class MapController {
@@ -327,7 +333,7 @@ export class MapController {
         format: def.format || 'image/png',
         transparent: def.transparent !== false,
         attribution: def.attribution,
-        crs: def.crs ? L.CRS[def.crs.replace(':', '')] : undefined,
+        crs: def.crs ? window.L.CRS[LEAFLET_CRS_MAP[def.crs] || def.crs] : undefined,
       });
     }
     return L.tileLayer(def.url, {
@@ -349,12 +355,9 @@ export class MapController {
         properties: { id: def.id },
       });
     }
-    // XYZ tile
-    const tileUrl = def.url
-      .replace('{s}', 'a')
-      .replace('{z}', '{z}')
-      .replace('{x}', '{x}')
-      .replace('{y}', '{y}');
+    // XYZ tile — OpenLayers XYZ source uses the same {z}/{x}/{y} template as
+    // Leaflet, so we only need to handle the Leaflet-specific {s} subdomain.
+    const tileUrl = def.url.replace('{s}', 'a');
     return new ol.layer.Tile({
       source: new ol.source.XYZ({
         url: tileUrl,

@@ -154,10 +154,18 @@ export function parseCommand(text) {
   }
 
   // --- Switch map engine ---
-  if (/\bswitch\s+to\s+openlayers\b/.test(t) || /\bopen\s*layers\b/.test(t)) {
+  if (
+    /\bswitch\s+to\s+open\s*layers\b/.test(t) ||
+    /\buse\s+open\s*layers\b/.test(t) ||
+    /\bopen\s*layers\s+map\b/.test(t)
+  ) {
     return { intent: INTENT.SWITCH_MAP, payload: { engine: 'openlayers' }, raw, confidence: 0.95 };
   }
-  if (/\bswitch\s+to\s+leaflet\b/.test(t) || /\bleaflet\b/.test(t)) {
+  if (
+    /\bswitch\s+to\s+leaflet\b/.test(t) ||
+    /\buse\s+leaflet\b/.test(t) ||
+    /\bleaflet\s+map\b/.test(t)
+  ) {
     return { intent: INTENT.SWITCH_MAP, payload: { engine: 'leaflet' }, raw, confidence: 0.95 };
   }
 

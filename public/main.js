@@ -253,15 +253,7 @@ function executeAction(result) {
           .then(([lat, lng]) => showNotif(`📍 Marker at ${lat.toFixed(4)}, ${lng.toFixed(4)}`, 'success'))
           .catch((err) => showNotif(`⚠ ${err.message}`, 'error'));
       } else {
-        const c = mapController._map
-          ? (currentMapEngine === MAP_ENGINE.LEAFLET
-              ? mapController._map.getCenter()
-              : (() => {
-                  const ol = window.ol;
-                  const coord = ol.proj.toLonLat(mapController._map.getView().getCenter());
-                  return { lat: coord[1], lng: coord[0] };
-                })())
-          : { lat: 0, lng: 0 };
+        const c = getMapCenter();
         mapController.addMarker([c.lat, c.lng], '📍 Marker');
         showNotif(`📍 Marker added`, 'success');
       }
@@ -389,6 +381,22 @@ function showNotif(msg, type = 'info') {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * Get the current map center as { lat, lng }, regardless of the active engine.
+ * @returns {{ lat: number, lng: number }}
+ */
+function getMapCenter() {
+  if (!mapController || !mapController._map) return { lat: 0, lng: 0 };
+
+  if (currentMapEngine === MAP_ENGINE.LEAFLET) {
+    return mapController._map.getCenter();
+  }
+
+  const ol = window.ol;
+  const coord = ol.proj.toLonLat(mapController._map.getView().getCenter());
+  return { lat: coord[1], lng: coord[0] };
+}
 
 function escapeHtml(str) {
   return String(str)
