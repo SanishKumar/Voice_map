@@ -123,8 +123,10 @@ See [`docs/usage.md`](docs/usage.md) for the full usage guide and [`docs/api.md`
 | OSM | `https://tile.openstreetmap.org` | OpenStreetMap |
 | NASA GIBS | `https://gibs.earthdata.nasa.gov/wms/epsg3857/best/wms.cgi` | NASA Worldview |
 | Bhuvan | `https://bhuvan-vec2.nrsc.gov.in/bhuvan/wms` | NRSC / ISRO |
-| Copernicus | `https://land.copernicus.vgt.vito.be/PriorityDatasets/OGC/WMService.aspx` | ESA Copernicus |
+| Copernicus | `https://image.discomap.eea.europa.eu/arcgis/services/Corine/CLC2018_WM/MapServer/WmsServer` | EEA / Copernicus Land Monitoring |
 | OpenTopoMap | `https://tile.opentopomap.org` | OpenTopoMap |
+
+> **Note:** The original Copernicus vito.be endpoint was replaced because `land.copernicus.vgt.vito.be` is no longer publicly reachable (ERR_NAME_NOT_RESOLVED). The EEA endpoint above serves the same CORINE Land Cover 2018 dataset.
 
 ---
 
