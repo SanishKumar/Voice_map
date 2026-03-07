@@ -54,6 +54,7 @@ export class SpeechEngine {
     this._tfjsModel = null;   // TF.js speech commands model
     this._isListening = false;
     this._restartOnEnd = false;
+    this._initialized = false; // Set to true after init() succeeds
   }
 
   /**
@@ -61,15 +62,26 @@ export class SpeechEngine {
    * @returns {Promise<void>}
    */
   async init() {
+    this._initialized = false;
     if (this.engineType === ENGINE_TYPE.TFJS) {
       await this._initTFJS();
     } else {
       this._initWebSpeech();
     }
+    this._initialized = true;
+  }
+
+  /** Returns true if init() completed successfully. */
+  get isInitialized() {
+    return this._initialized;
   }
 
   /** Start listening. */
   start() {
+    if (!this._initialized) {
+      this.onError(new Error('Speech engine not initialised. Call init() first.'));
+      return;
+    }
     if (this._isListening) return;
     this._isListening = true;
     this._restartOnEnd = true;

@@ -61,6 +61,7 @@ const statSession    = document.getElementById('stat-session');
 function initMap(engine) {
   if (mapController) {
     mapController.destroy();
+    mapController = null;
   }
 
   // Show the correct container
@@ -77,26 +78,31 @@ function initMap(engine) {
 
   const containerId = engine === MAP_ENGINE.OPENLAYERS ? 'ol-map' : 'leaflet-map';
 
-  mapController = new MapController({
-    engine,
-    containerId,
-    onAction: handleMapAction,
-  });
-  mapController.init();
-  currentMapEngine = engine;
+  try {
+    mapController = new MapController({
+      engine,
+      containerId,
+      onAction: handleMapAction,
+    });
+    mapController.init();
+    currentMapEngine = engine;
 
-  statusMap.textContent = `Map: ${engine === MAP_ENGINE.LEAFLET ? 'Leaflet' : 'OpenLayers'}`;
+    statusMap.textContent = `Map: ${engine === MAP_ENGINE.LEAFLET ? 'Leaflet' : 'OpenLayers'}`;
 
-  // Track zoom / coords on move
-  if (engine === MAP_ENGINE.LEAFLET) {
-    mapController._map.on('moveend', updateStatusBar);
-    mapController._map.on('zoomend', updateStatusBar);
-  } else {
-    mapController._map.getView().on('change', updateStatusBar);
+    // Track zoom / coords on move
+    if (engine === MAP_ENGINE.LEAFLET) {
+      mapController._map.on('moveend', updateStatusBar);
+      mapController._map.on('zoomend', updateStatusBar);
+    } else {
+      mapController._map.getView().on('change', updateStatusBar);
+    }
+
+    updateStatusBar();
+    syncLayerToggles();
+  } catch (err) {
+    showNotif(`⚠ Map failed to initialise: ${err.message}`, 'error');
+    console.error('[VoiceGIS] Map init error:', err);
   }
-
-  updateStatusBar();
-  syncLayerToggles();
 }
 
 function updateStatusBar() {
@@ -141,6 +147,10 @@ function setLayerCheckbox(layerId, checked) {
 // ---------------------------------------------------------------------------
 
 async function initSpeechEngine(type) {
+  // Disable voice controls while (re-)initialising
+  voiceBtn.disabled = true;
+  voiceBtn.title = 'Initialising speech engine…';
+
   if (speechEngine && speechEngine.isListening) {
     speechEngine.stop();
   }
@@ -162,9 +172,14 @@ async function initSpeechEngine(type) {
   try {
     await speechEngine.init();
     statusEngine.textContent = `Engine: ${type === ENGINE_TYPE.TFJS ? 'TensorFlow.js' : 'Web Speech API'}`;
+    // Only enable the voice button after successful initialisation
+    voiceBtn.disabled = false;
+    voiceBtn.title = 'Click or press Space to toggle voice recognition';
   } catch (err) {
-    showNotif(`⚠ ${err.message}`, 'error');
-    console.error(err);
+    showNotif(`⚠ Speech engine failed: ${err.message}`, 'error');
+    console.error('[VoiceGIS] Speech engine init error:', err);
+    statusEngine.textContent = 'Engine: Not available';
+    voiceBtn.title = `Speech engine unavailable: ${err.message}`;
   }
 }
 
@@ -212,6 +227,11 @@ function handleSpeechError(err) {
 
 function executeAction(result) {
   const t0 = performance.now();
+
+  if (!mapController) {
+    showNotif('⚠ Map is not ready', 'error');
+    return performance.now() - t0;
+  }
 
   switch (result.intent) {
     case INTENT.ZOOM_IN:
@@ -410,20 +430,27 @@ function escapeHtml(str) {
 // Event wiring
 // ---------------------------------------------------------------------------
 
-// Voice toggle button
-voiceBtn.addEventListener('click', () => speechEngine && speechEngine.toggle());
+// Voice toggle button — only active when the speech engine is fully ready
+voiceBtn.addEventListener('click', () => {
+  if (speechEngine && speechEngine.isInitialized) {
+    speechEngine.toggle();
+  }
+});
 
 // Keyboard shortcut: Space toggles listening when not in an input
 document.addEventListener('keydown', (e) => {
   if (e.code === 'Space' && e.target.tagName !== 'INPUT' && e.target.tagName !== 'SELECT') {
     e.preventDefault();
-    speechEngine && speechEngine.toggle();
+    if (speechEngine && speechEngine.isInitialized) {
+      speechEngine.toggle();
+    }
   }
 });
 
-// Engine selector
+// Engine selector — disable voice button until re-init completes
 engineSelect.addEventListener('change', () => {
   const type = engineSelect.value === 'tfjs' ? ENGINE_TYPE.TFJS : ENGINE_TYPE.WEB_SPEECH;
+  voiceBtn.disabled = true;
   initSpeechEngine(type);
 });
 
@@ -433,14 +460,18 @@ mapSelect.addEventListener('change', () => {
   if (newEngine !== currentMapEngine) switchMapEngine(newEngine);
 });
 
-// Quick action buttons
-document.getElementById('btn-zoom-in').addEventListener('click',  () => mapController.zoomIn());
-document.getElementById('btn-zoom-out').addEventListener('click', () => mapController.zoomOut());
-document.getElementById('btn-reset').addEventListener('click',    () => mapController.resetView());
-document.getElementById('btn-locate').addEventListener('click',   () =>
-  mapController.addMarkerAtCurrentLocation()
-    .catch((e) => showNotif(`⚠ ${e.message}`, 'error'))
-);
+// Quick action buttons — guard against mapController not yet ready
+document.getElementById('btn-zoom-in').addEventListener('click',  () => mapController ? mapController.zoomIn()   : showNotif('⚠ Map is not ready', 'error'));
+document.getElementById('btn-zoom-out').addEventListener('click', () => mapController ? mapController.zoomOut()  : showNotif('⚠ Map is not ready', 'error'));
+document.getElementById('btn-reset').addEventListener('click',    () => mapController ? mapController.resetView(): showNotif('⚠ Map is not ready', 'error'));
+document.getElementById('btn-locate').addEventListener('click',   () => {
+  if (mapController) {
+    mapController.addMarkerAtCurrentLocation()
+      .catch((e) => showNotif(`⚠ ${e.message}`, 'error'));
+  } else {
+    showNotif('⚠ Map is not ready', 'error');
+  }
+});
 
 // Sidebar tabs
 document.querySelectorAll('.tab-btn').forEach((btn) => {
