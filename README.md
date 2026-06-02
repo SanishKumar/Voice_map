@@ -1,6 +1,5 @@
 <div align="center">
-  <img src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0naHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmcnIHZpZXdCb3g9JzAgMCAxMDAgMTAwJz48dGV4dCB5PScuOWVtJyBmb250LXNpemU9JzkwJz7wn5+6PC90ZXh0Pjwvc3ZnPg==" width="120" height="120" alt="VoiceGIS Logo" />
-  <h1>VoiceGIS</h1>
+  <h1>🗺️ VoiceGIS</h1>
   <p><strong>A Real-World Hybrid Voice Interface for Web GIS</strong></p>
   
   <p>
