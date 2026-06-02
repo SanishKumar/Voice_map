@@ -11,7 +11,7 @@
 export class WebSpeechEngine {
   /**
    * @param {object} options
-   * @param {function} options.onResult  - Called with (text: string, isFinal: boolean)
+   * @param {function} [options.onResult]  - Called with (text: string, isFinal: boolean)
    * @param {function} [options.onError] - Called with (error: Error)
    * @param {function} [options.onStart] - Called when recognition starts
    * @param {function} [options.onEnd]   - Called when recognition ends

@@ -46,6 +46,14 @@ export class WhisperServerEngine {
     this._initialized = false;
   }
 
+  get isInitialized() {
+    return this._initialized;
+  }
+
+  get isListening() {
+    return this._isListening;
+  }
+
   _setState(state) {
     this._state = state;
     this.onStateChange(state);

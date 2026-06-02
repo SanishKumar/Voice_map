@@ -157,6 +157,7 @@ export class MapController {
       }
       navigator.geolocation.getCurrentPosition(
         (pos) => {
+          /** @type {[number, number]} */
           const latLng = [pos.coords.latitude, pos.coords.longitude];
           this.goTo(latLng, 14, 'My Location');
           this.addMarker(latLng, '📍 You are here');

@@ -20,7 +20,7 @@ const LEAFLET_CRS_MAP = {
 export class LeafletAdapter {
   /**
    * @param {object} options
-   * @param {string}   options.containerId  - DOM id for the map div
+   * @param {string}   [options.containerId='map']  - DOM id for the map div
    * @param {function} [options.onLayerError] - Callback for WMS/tile load failures
    */
   constructor(options = {}) {

@@ -13,7 +13,7 @@ import { LAYER_DEFS, DEFAULT_CENTER, DEFAULT_ZOOM } from './layers.js';
 export class OpenLayersAdapter {
   /**
    * @param {object} options
-   * @param {string}   options.containerId  - DOM id for the map div
+   * @param {string}   [options.containerId='map']  - DOM id for the map div
    * @param {function} [options.onLayerError] - Callback for WMS/tile load failures
    */
   constructor(options = {}) {
