@@ -314,18 +314,18 @@ h1, h2, h3, .logo {
   z-index: 10;
   width: 90%;
   max-width: 600px;
-  padding: 1.5rem;
+  padding: 1rem;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 1rem;
+  gap: 0.5rem;
   border-radius: var(--radius-lg);
   transition: transform 0.3s var(--spring);
 }
 
 .visualizer-container {
   width: 100%;
-  height: 60px;
+  height: 40px;
   position: relative;
 }
 canvas#waveform-canvas {

@@ -476,6 +476,7 @@ mapSelect.addEventListener('change', () => {
   if (newEngine !== currentMapEngine) switchMapEngine(newEngine);
 });
 
+
 // Stats Buttons
 document.getElementById('export-json').addEventListener('click', () => {
   downloadFile(tracker.exportJSON(), 'voicegis-session.json', 'application/json');

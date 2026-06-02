@@ -54,7 +54,7 @@ export const LAYER_DEFS = {
     // Replaced with the EEA-hosted CORINE Land Cover 2018 WMS.
     // ⚠ This ArcGIS-hosted endpoint may send CORS headers that block browser requests.
     url: 'https://image.discomap.eea.europa.eu/arcgis/services/Corine/CLC2018_WM/MapServer/WmsServer',
-    layers: '0',
+    layers: '12',
     format: 'image/png',
     transparent: true,
     version: '1.1.1',
