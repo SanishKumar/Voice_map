@@ -5,7 +5,12 @@
  * Supports intents:
  *   zoom_in, zoom_out, go_to, show_layer, hide_layer,
  *   add_marker, switch_map, reset_view
+ *
+ * @module parser/CommandParser
  */
+
+import { fuzzyMatch, fuzzyResolveLayer, fuzzyResolveCity } from './fuzzyMatch.js';
+import { Geocoder } from './geocoder.js';
 
 /** Canonical intent names */
 export const INTENT = {
@@ -22,7 +27,7 @@ export const INTENT = {
 
 /**
  * Known city / place coordinates [lat, lng].
- * Extend this list to support more locations.
+ * Fallback for offline mode or fast local resolution.
  */
 export const CITY_COORDS = {
   ahmedabad: [23.0225, 72.5714],
@@ -101,105 +106,102 @@ export const LAYER_ALIASES = {
   topographic: 'terrain',
 };
 
+const SIMPLE_INTENT_PHRASES = {
+  'zoom in': { intent: INTENT.ZOOM_IN },
+  'magnify': { intent: INTENT.ZOOM_IN },
+  'enlarge': { intent: INTENT.ZOOM_IN },
+  'zoom out': { intent: INTENT.ZOOM_OUT },
+  'shrink': { intent: INTENT.ZOOM_OUT },
+  'minify': { intent: INTENT.ZOOM_OUT },
+  'reset view': { intent: INTENT.RESET_VIEW },
+  'home': { intent: INTENT.RESET_VIEW },
+  'default view': { intent: INTENT.RESET_VIEW },
+  'add marker': { intent: INTENT.ADD_MARKER, payload: { useCurrentLocation: false } },
+  'drop a pin': { intent: INTENT.ADD_MARKER, payload: { useCurrentLocation: false } },
+  'place a marker': { intent: INTENT.ADD_MARKER, payload: { useCurrentLocation: false } },
+  'add marker at my location': { intent: INTENT.ADD_MARKER, payload: { useCurrentLocation: true } },
+  'drop a pin here': { intent: INTENT.ADD_MARKER, payload: { useCurrentLocation: true } },
+  'switch to openlayers': { intent: INTENT.SWITCH_MAP, payload: { engine: 'openlayers' } },
+  'use openlayers': { intent: INTENT.SWITCH_MAP, payload: { engine: 'openlayers' } },
+  'switch to leaflet': { intent: INTENT.SWITCH_MAP, payload: { engine: 'leaflet' } },
+  'use leaflet': { intent: INTENT.SWITCH_MAP, payload: { engine: 'leaflet' } },
+};
+
+// Global default geocoder instance for the parser to use
+export const defaultGeocoder = new Geocoder();
+
 /**
  * Parse a recognized speech string into an action object.
+ * Asynchronous to support online geocoding.
  *
  * @param {string} text - Raw recognized text (case-insensitive).
- * @returns {{ intent: string, payload: object, raw: string, confidence: number }}
+ * @param {object} [options]
+ * @param {boolean} [options.enableGeocoding=true] - Whether to use Nominatim online API
+ * @param {Geocoder} [options.geocoder] - Geocoder instance to use
+ * @returns {Promise<{ intent: string, payload: object, raw: string, confidence: number }>}
  */
-export function parseCommand(text) {
+export async function parseCommand(text, options = {}) {
   if (!text || typeof text !== 'string') {
     return { intent: INTENT.UNKNOWN, payload: {}, raw: text || '', confidence: 0 };
   }
 
   const raw = text;
   const t = text.toLowerCase().trim();
+  const enableGeocoding = options.enableGeocoding !== false;
+  const geocoder = options.geocoder || defaultGeocoder;
 
-  // --- Zoom in ---
-  if (
-    /\bzoom\s*in\b/.test(t) ||
-    /\bmore\s+zoom\b/.test(t) ||
-    t === 'up' ||
-    /\bmagnify\b/.test(t) ||
-    /\benlarge\b/.test(t)
-  ) {
+  // 1. Check strict regexes for simple commands
+  if (/\bzoom\s*in\b/.test(t) || /\bmore\s+zoom\b/.test(t) || t === 'up' || /\bmagnify\b/.test(t) || /\benlarge\b/.test(t)) {
     return { intent: INTENT.ZOOM_IN, payload: {}, raw, confidence: 0.95 };
   }
 
-  // --- Zoom out ---
-  if (
-    /\bzoom\s*out\b/.test(t) ||
-    /\bless\s+zoom\b/.test(t) ||
-    t === 'down' ||
-    /\bshrink\b/.test(t) ||
-    /\bminify\b/.test(t)
-  ) {
+  if (/\bzoom\s*out\b/.test(t) || /\bless\s+zoom\b/.test(t) || t === 'down' || /\bshrink\b/.test(t) || /\bminify\b/.test(t)) {
     return { intent: INTENT.ZOOM_OUT, payload: {}, raw, confidence: 0.95 };
   }
 
-  // --- Reset / home view ---
   if (/\b(reset|home|default)\s*(view|map|zoom)?\b/.test(t)) {
     return { intent: INTENT.RESET_VIEW, payload: {}, raw, confidence: 0.9 };
   }
 
-  // --- Add marker ---
   if (/\b(add|place|drop|set|put)\s+(a\s+)?(marker|pin|point)\b/.test(t)) {
     const atMyLocation = /\b(my\s+location|here|current)\b/.test(t);
-    return {
-      intent: INTENT.ADD_MARKER,
-      payload: { useCurrentLocation: atMyLocation },
-      raw,
-      confidence: 0.9,
-    };
+    return { intent: INTENT.ADD_MARKER, payload: { useCurrentLocation: atMyLocation }, raw, confidence: 0.9 };
   }
 
-  // --- Switch map engine ---
-  if (
-    /\bswitch\s+to\s+open\s*layers\b/.test(t) ||
-    /\buse\s+open\s*layers\b/.test(t) ||
-    /\bopen\s*layers\s+map\b/.test(t)
-  ) {
+  if (/\bswitch\s+to\s+open\s*layers\b/.test(t) || /\buse\s+open\s*layers\b/.test(t) || /\bopen\s*layers\s+map\b/.test(t)) {
     return { intent: INTENT.SWITCH_MAP, payload: { engine: 'openlayers' }, raw, confidence: 0.95 };
   }
-  if (
-    /\bswitch\s+to\s+leaflet\b/.test(t) ||
-    /\buse\s+leaflet\b/.test(t) ||
-    /\bleaflet\s+map\b/.test(t)
-  ) {
+
+  if (/\bswitch\s+to\s+leaflet\b/.test(t) || /\buse\s+leaflet\b/.test(t) || /\bleaflet\s+map\b/.test(t)) {
     return { intent: INTENT.SWITCH_MAP, payload: { engine: 'leaflet' }, raw, confidence: 0.95 };
   }
 
+  // 2. Fuzzy match simple phrases
+  const simpleMatch = fuzzyMatch(t, Object.keys(SIMPLE_INTENT_PHRASES), { maxDistance: 2, threshold: 0.75 });
+  if (simpleMatch) {
+    const mapped = SIMPLE_INTENT_PHRASES[simpleMatch.match];
+    return { intent: mapped.intent, payload: mapped.payload || {}, raw, confidence: simpleMatch.score * 0.9 };
+  }
+
+  // 3. Extract parameterized intents (Show/Hide layer, Go To place)
+
   // --- Show / add layer ---
-  const showLayerMatch = t.match(
-    /\b(show|add|enable|load|turn\s+on|display|open)\s+(me\s+)?(?:the\s+)?(.+?)(?:\s+layer|\s+view|\s+map)?\s*$/
-  );
+  const showLayerMatch = t.match(/\b(show|add|enable|load|turn\s+on|display|open)\s+(me\s+)?(?:the\s+)?(.+?)(?:\s+layer|\s+view|\s+map)?\s*$/);
   if (showLayerMatch) {
     const alias = showLayerMatch[3].trim();
-    const layerId = resolveLayer(alias);
-    if (layerId) {
-      return {
-        intent: INTENT.SHOW_LAYER,
-        payload: { layerId, alias },
-        raw,
-        confidence: 0.88,
-      };
+    const resolved = fuzzyResolveLayer(alias, LAYER_ALIASES);
+    if (resolved) {
+      return { intent: INTENT.SHOW_LAYER, payload: { layerId: resolved.layerId, alias: resolved.alias }, raw, confidence: resolved.score * 0.9 };
     }
   }
 
   // --- Hide / remove layer ---
-  const hideLayerMatch = t.match(
-    /\b(hide|remove|disable|turn\s+off|close)\s+(?:the\s+)?(.+?)(?:\s+layer|\s+view|\s+map)?\s*$/
-  );
+  const hideLayerMatch = t.match(/\b(hide|remove|disable|turn\s+off|close)\s+(?:the\s+)?(.+?)(?:\s+layer|\s+view|\s+map)?\s*$/);
   if (hideLayerMatch) {
     const alias = hideLayerMatch[2].trim();
-    const layerId = resolveLayer(alias);
-    if (layerId) {
-      return {
-        intent: INTENT.HIDE_LAYER,
-        payload: { layerId, alias },
-        raw,
-        confidence: 0.88,
-      };
+    const resolved = fuzzyResolveLayer(alias, LAYER_ALIASES);
+    if (resolved) {
+      return { intent: INTENT.HIDE_LAYER, payload: { layerId: resolved.layerId, alias: resolved.alias }, raw, confidence: resolved.score * 0.9 };
     }
   }
 
@@ -216,24 +218,19 @@ export function parseCommand(text) {
     const m = t.match(pattern);
     if (m) {
       const placeName = m[1].trim().replace(/[.,!?]+$/, '');
-      const coords = resolveCity(placeName);
-      if (coords) {
-        return {
-          intent: INTENT.GO_TO,
-          payload: { place: placeName, coords },
-          raw,
-          confidence: 0.9,
-        };
+      const goResult = await resolveGoTo(placeName, enableGeocoding, geocoder);
+      if (goResult) {
+        return { intent: INTENT.GO_TO, payload: goResult, raw, confidence: 0.9 };
       }
     }
   }
 
-  // --- Fallback: check if any city name appears in the utterance ---
+  // --- Fallback: scan free text for any known city name ---
   const cityMatch = findCityInText(t);
   if (cityMatch) {
     return {
       intent: INTENT.GO_TO,
-      payload: { place: cityMatch.name, coords: cityMatch.coords },
+      payload: { place: cityMatch.name, coords: cityMatch.coords, fuzzy: false, source: 'offline-scan' },
       raw,
       confidence: 0.7,
     };
@@ -243,7 +240,42 @@ export function parseCommand(text) {
 }
 
 /**
- * Resolve a layer alias to a canonical layer id.
+ * Resolve a go-to target to coordinates, trying local cache first then online geocoder.
+ * @param {string} placeName
+ * @param {boolean} enableGeocoding
+ * @param {Geocoder} geocoder
+ * @returns {Promise<{place: string, coords: [number, number], fuzzy: boolean, source: string}|null>}
+ */
+async function resolveGoTo(placeName, enableGeocoding, geocoder) {
+  // Try local hardcoded coordinates (with fuzzy matching)
+  const localMatch = fuzzyResolveCity(placeName, CITY_COORDS);
+  if (localMatch) {
+    return {
+      place: localMatch.name,
+      coords: localMatch.coords,
+      fuzzy: localMatch.fuzzy,
+      source: 'offline',
+    };
+  }
+
+  // If online geocoding is enabled, try Nominatim
+  if (enableGeocoding && geocoder) {
+    const geoResult = await geocoder.geocode(placeName);
+    if (geoResult) {
+      return {
+        place: geoResult.displayName,
+        coords: [geoResult.lat, geoResult.lon],
+        fuzzy: false,
+        source: 'online',
+      };
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Resolve a layer alias to a canonical layer id (backward compatibility).
  * @param {string} alias
  * @returns {string|null}
  */
@@ -254,7 +286,7 @@ export function resolveLayer(alias) {
 }
 
 /**
- * Resolve a city/place name to [lat, lng] coordinates.
+ * Resolve a city/place name to [lat, lng] coordinates (backward compatibility).
  * @param {string} name
  * @returns {[number, number]|null}
  */

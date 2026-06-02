@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>VoiceGIS — OpenLayers Integration</title>
+  
+  <!-- OpenLayers CSS -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ol@v8.2.0/ol.css" />
+  
+  <style>
+    body, html { margin: 0; padding: 0; height: 100%; font-family: sans-serif; }
+    #map { width: 100%; height: 100%; }
+    
+    #controls {
+      position: absolute;
+      top: 20px;
+      right: 20px;
+      background: white;
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      z-index: 1000;
+      width: 250px;
+    }
+
+    button {
+      width: 100%;
+      padding: 10px;
+      background: #10b981;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      font-size: 16px;
+      cursor: pointer;
+      margin-top: 10px;
+    }
+    button:disabled { background: #9ca3af; }
+
+    #transcript {
+      margin-top: 15px;
+      font-size: 14px;
+      color: #4b5563;
+      min-height: 40px;
+      font-style: italic;
+    }
+
+    #state {
+      font-size: 12px;
+      color: #6b7280;
+      text-transform: uppercase;
+      font-weight: bold;
+    }
+  </style>
+</head>
+<body>
+
+  <div id="map"></div>
+
+  <div id="controls">
+    <h3>OpenLayers Voice Map</h3>
+    <div id="state">State: Loading...</div>
+    <button id="mic-btn" disabled>🎙️ Start Listening</button>
+    <div id="transcript">Waiting for speech...</div>
+  </div>
+
+  <script type="module">
+    import { VoiceGIS } from '../src/VoiceGIS.js';
+
+    const transcriptEl = document.getElementById('transcript');
+    const stateEl = document.getElementById('state');
+    const micBtn = document.getElementById('mic-btn');
+
+    const app = new VoiceGIS({
+      mapEngine: 'openlayers',
+      mapContainerId: 'map',
+      speechEngine: 'webspeech', 
+      autoExecute: true,
+      
+      onStateChange: (state) => {
+        stateEl.textContent = `State: ${state}`;
+      },
+      
+      onCommandParsed: (result, rawText) => {
+        transcriptEl.innerHTML = `<b>Text:</b> "${rawText}"<br/><b>Intent:</b> ${result.intent}`;
+      }
+    });
+
+    app.initSpeech().then(() => {
+      micBtn.disabled = false;
+      stateEl.textContent = "State: Ready";
+    }).catch(err => {
+      stateEl.textContent = "State: Error";
+      alert("Error: " + err.message);
+    });
+
+    let isListening = false;
+    micBtn.addEventListener('click', () => {
+      if (!isListening) {
+        app.start();
+        micBtn.textContent = "🛑 Stop Listening";
+        isListening = true;
+      } else {
+        app.stop();
+        micBtn.textContent = "🎙️ Start Listening";
+        isListening = false;
+      }
+    });
+  </script>
+</body>
+</html>

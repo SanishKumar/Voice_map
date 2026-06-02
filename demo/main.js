@@ -2,16 +2,18 @@
  * main.js — VoiceGIS demo entry point (ES module)
  *
  * Wires together:
- *   SpeechEngine  → SpeechEngine recognises speech and emits text
- *   parseCommand  → converts text to structured action
- *   MapController → executes the action on the map
- *   EvaluationTracker → records metrics
+ *   SpeechEngine  → Recognizes speech
+ *   parseCommand  → Converts text to structured action
+ *   MapController → Executes action on the map
+ *   EvaluationTracker → Records metrics
+ *   AudioCapture / WaveformRenderer → Visualizes audio
  */
 
-import { SpeechEngine, ENGINE_TYPE }  from '../src/speechEngine.js';
-import { parseCommand, INTENT }        from '../src/commandParser.js';
-import { MapController, MAP_ENGINE }   from '../src/mapController.js';
-import { EvaluationTracker }           from '../src/evaluation.js';
+import { SpeechEngine, ENGINE_TYPE, WHISPER_STATE } from '../src/engines/index.js';
+import { parseCommand, INTENT } from '../src/parser/index.js';
+import { MapController, MAP_ENGINE } from '../src/map/index.js';
+import { EvaluationTracker } from '../src/evaluation/index.js';
+import { AudioCapture, WaveformRenderer } from '../src/audio/index.js';
 
 // ---------------------------------------------------------------------------
 // State
@@ -20,42 +22,106 @@ import { EvaluationTracker }           from '../src/evaluation.js';
 let currentMapEngine = MAP_ENGINE.LEAFLET;
 let speechEngine     = null;
 let mapController    = null;
+let audioCapture     = null;
+let waveform         = null;
 const tracker        = new EvaluationTracker();
 
 // ---------------------------------------------------------------------------
-// DOM references
+// DOM References
 // ---------------------------------------------------------------------------
 
-const voiceBtn       = document.getElementById('voice-btn');
-const voiceLabel     = document.getElementById('voice-label');
-const engineSelect   = document.getElementById('engine-select');
-const mapSelect      = document.getElementById('map-select');
-const transcriptEl   = document.getElementById('transcript');
-const commandLog     = document.getElementById('command-log');
-const helpBtn        = document.getElementById('help-btn');
-const helpModal      = document.getElementById('help-modal');
-const modalCloseBtn  = document.getElementById('modal-close-btn');
-const mapOverlay     = document.getElementById('map-overlay');
-const overlayMsg     = document.getElementById('overlay-msg');
-const notifContainer = document.getElementById('notif-container');
+// UI Elements
+const voiceBtn         = document.getElementById('voice-btn');
+const transcriptEl     = document.getElementById('transcript');
+const mapOverlay       = document.getElementById('map-overlay');
+const overlayMsg       = document.getElementById('overlay-msg');
+const notifContainer   = document.getElementById('notif-container');
+const offlineBanner    = document.getElementById('offline-banner');
 
-// status bar
-const statusEngine   = document.getElementById('status-engine');
-const statusMap      = document.getElementById('status-map');
-const statusCoords   = document.getElementById('status-coords');
-const statusZoom     = document.getElementById('status-zoom');
+// Settings Drawer
+const settingsToggle   = document.getElementById('settings-toggle');
+const drawerClose      = document.getElementById('drawer-close');
+const settingsDrawer   = document.getElementById('settings-drawer');
+const drawerBackdrop   = document.getElementById('drawer-backdrop');
 
-// stats
-const statTotal      = document.getElementById('stat-total');
-const statRecognized = document.getElementById('stat-recognized');
-const statUnknown    = document.getElementById('stat-unknown');
-const statAccuracy   = document.getElementById('stat-accuracy');
-const statConfidence = document.getElementById('stat-confidence');
-const statLatency    = document.getElementById('stat-latency');
-const statSession    = document.getElementById('stat-session');
+// Selects
+const engineSelect     = document.getElementById('engine-select');
+const mapSelect        = document.getElementById('map-select');
+
+// Whisper Progress
+const whisperProgressContainer = document.getElementById('whisper-progress-container');
+const whisperStatusText        = document.getElementById('whisper-status-text');
+const whisperStatusPct         = document.getElementById('whisper-status-pct');
+const whisperProgressBar       = document.getElementById('whisper-progress-bar');
+
+// Status Bar & Pills
+const engineStatusDot  = document.querySelector('#engine-status .status-dot');
+const engineStatusText = document.querySelector('#engine-status .status-text');
+const mapStatusText    = document.querySelector('#map-status .status-text');
+const statusCoords     = document.getElementById('status-coords');
+const statusZoom       = document.getElementById('status-zoom');
+
+// Stats
+const statTotal        = document.getElementById('stat-total');
+const statRecognized   = document.getElementById('stat-recognized');
+const statUnknown      = document.getElementById('stat-unknown');
+const statAccuracy     = document.getElementById('stat-accuracy');
+const statLatency      = document.getElementById('stat-latency');
+const statSession      = document.getElementById('stat-session');
 
 // ---------------------------------------------------------------------------
-// Map initialisation
+// Setup Audio Visualization
+// ---------------------------------------------------------------------------
+
+function initAudioVisualization() {
+  const canvas = document.getElementById('waveform-canvas');
+  if (!canvas) return;
+  
+  waveform = new WaveformRenderer(canvas);
+  waveform.setStyle({ style: 'bars', color: '#3b82f6' });
+}
+
+async function startAudioCapture() {
+  // Try to get AnalyserNode from WhisperEngine if it's running
+  if (speechEngine && speechEngine._delegate && typeof speechEngine._delegate.getAudioCapture === 'function') {
+    const ac = speechEngine._delegate.getAudioCapture();
+    if (ac && waveform) {
+      waveform.setAnalyserNode(ac.getAnalyserNode());
+      waveform.start();
+      return;
+    }
+  }
+
+  // Fallback: create standalone AudioCapture for WebSpeech / TF.js
+  if (!audioCapture) {
+    audioCapture = new AudioCapture({
+      onSilence: () => {},
+      onAudioData: () => {}
+    });
+  }
+  
+  if (!audioCapture.isCapturing) {
+    try {
+      await audioCapture.start();
+      if (waveform) {
+        waveform.setAnalyserNode(audioCapture.getAnalyserNode());
+        waveform.start();
+      }
+    } catch (e) {
+      console.warn('Audio capture failed:', e);
+    }
+  }
+}
+
+function stopAudioCapture() {
+  if (waveform) waveform.stop();
+  if (audioCapture && audioCapture.isCapturing) {
+    audioCapture.stop();
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Map Initialization
 // ---------------------------------------------------------------------------
 
 function initMap(engine) {
@@ -64,16 +130,15 @@ function initMap(engine) {
     mapController = null;
   }
 
-  // Show the correct container
   const leafletDiv = document.getElementById('leaflet-map');
   const olDiv      = document.getElementById('ol-map');
 
   if (engine === MAP_ENGINE.OPENLAYERS) {
-    leafletDiv.style.display = 'none';
-    olDiv.style.display      = 'block';
+    leafletDiv.classList.remove('active');
+    olDiv.classList.add('active');
   } else {
-    olDiv.style.display      = 'none';
-    leafletDiv.style.display = 'block';
+    olDiv.classList.remove('active');
+    leafletDiv.classList.add('active');
   }
 
   const containerId = engine === MAP_ENGINE.OPENLAYERS ? 'ol-map' : 'leaflet-map';
@@ -82,53 +147,32 @@ function initMap(engine) {
     mapController = new MapController({
       engine,
       containerId,
-      onAction: handleMapAction,
-      // Surface WMS/tile load failures as user notifications and uncheck
-      // the corresponding layer toggle so the UI stays in sync with reality.
+      onAction: () => {},
       onLayerError: handleLayerError,
     });
     mapController.init();
     currentMapEngine = engine;
 
-    statusMap.textContent = `Map: ${engine === MAP_ENGINE.LEAFLET ? 'Leaflet' : 'OpenLayers'}`;
-
-    // Track zoom / coords on move
-    if (engine === MAP_ENGINE.LEAFLET) {
-      mapController._map.on('moveend', updateStatusBar);
-      mapController._map.on('zoomend', updateStatusBar);
-    } else {
-      mapController._map.getView().on('change', updateStatusBar);
-    }
-
+    mapStatusText.textContent = engine === MAP_ENGINE.LEAFLET ? 'Leaflet' : 'OpenLayers';
+    mapController.onMove(updateStatusBar);
     updateStatusBar();
     syncLayerToggles();
   } catch (err) {
-    showNotif(`⚠ Map failed to initialise: ${err.message}`, 'error');
-    console.error('[VoiceGIS] Map init error:', err);
+    showNotif(`⚠ Map failed to initialize: ${err.message}`, 'error');
+    console.error(err);
   }
 }
 
 function updateStatusBar() {
-  if (!mapController || !mapController._map) return;
-
-  if (currentMapEngine === MAP_ENGINE.LEAFLET) {
-    const c = mapController._map.getCenter();
-    statusCoords.textContent = `Lat/Lng: ${c.lat.toFixed(4)}, ${c.lng.toFixed(4)}`;
-    statusZoom.textContent   = `Zoom: ${mapController._map.getZoom()}`;
-  } else {
-    // OpenLayers: zoom is on the View, not the Map object. view.getZoom() may
-    // return undefined during an in-progress animation, so guard against NaN.
-    const ol = window.ol;
-    const view  = mapController._map.getView();
-    const coord = ol.proj.toLonLat(view.getCenter());
-    const zoom  = view.getZoom();
-    statusCoords.textContent = `Lat/Lng: ${coord[1].toFixed(4)}, ${coord[0].toFixed(4)}`;
-    statusZoom.textContent   = `Zoom: ${zoom !== undefined ? Math.round(zoom) : '—'}`;
-  }
+  if (!mapController) return;
+  const c = mapController.getCenter();
+  const zoom = mapController.getZoom();
+  statusCoords.textContent = `Lat: ${c.lat.toFixed(4)}, Lng: ${c.lng.toFixed(4)}`;
+  statusZoom.textContent   = `Zoom: ${zoom !== undefined ? Math.round(zoom) : '—'}`;
 }
 
 // ---------------------------------------------------------------------------
-// Layer toggles (sidebar checkboxes ↔ map)
+// Layer Toggles
 // ---------------------------------------------------------------------------
 
 function syncLayerToggles() {
@@ -148,213 +192,10 @@ function setLayerCheckbox(layerId, checked) {
   if (cb) cb.checked = checked;
 }
 
-// ---------------------------------------------------------------------------
-// Speech engine initialisation
-// ---------------------------------------------------------------------------
-
-async function initSpeechEngine(type) {
-  // Disable voice controls while (re-)initialising
-  voiceBtn.disabled = true;
-  voiceBtn.title = 'Initialising speech engine…';
-
-  if (speechEngine && speechEngine.isListening) {
-    speechEngine.stop();
-  }
-
-  speechEngine = new SpeechEngine({
-    engine: type,
-    onResult: handleSpeechResult,
-    onError:  handleSpeechError,
-    onStart:  () => {
-      voiceBtn.classList.add('listening');
-      voiceLabel.textContent = 'Listening…';
-    },
-    onEnd: () => {
-      voiceBtn.classList.remove('listening');
-      voiceLabel.textContent = 'Start Listening';
-    },
-  });
-
-  try {
-    await speechEngine.init();
-    statusEngine.textContent = `Engine: ${type === ENGINE_TYPE.TFJS ? 'TensorFlow.js' : 'Web Speech API'}`;
-    // Only enable the voice button after successful initialisation
-    voiceBtn.disabled = false;
-    voiceBtn.title = 'Click or press Space to toggle voice recognition';
-  } catch (err) {
-    showNotif(`⚠ Speech engine failed: ${err.message}`, 'error');
-    console.error('[VoiceGIS] Speech engine init error:', err);
-    statusEngine.textContent = 'Engine: Not available';
-    voiceBtn.title = `Speech engine unavailable: ${err.message}`;
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Speech result handling
-// ---------------------------------------------------------------------------
-
-function handleSpeechResult(text, isFinal) {
-  // Always show transcript, even interim
-  transcriptEl.textContent = text;
-  transcriptEl.className   = isFinal ? 'final' : 'interim';
-
-  if (!isFinal) return;
-
-  // Parse the final utterance
-  const t0     = performance.now();
-  const result = parseCommand(text);
-  const parseTime = performance.now() - t0;
-
-  // Execute map action
-  const actionLatency = executeAction(result);
-
-  // Record in tracker
-  tracker.recordCommand({
-    raw:        text,
-    intent:     result.intent,
-    payload:    result.payload,
-    confidence: result.confidence,
-    latency:    actionLatency + parseTime,
-  });
-
-  // Add to log
-  addLogEntry(result, text);
-  updateStats();
-}
-
-function handleSpeechError(err) {
-  showNotif(`🎙️ ${err.message}`, 'error');
-  console.warn('[Speech]', err);
-}
-
-// ---------------------------------------------------------------------------
-// Map action execution
-// ---------------------------------------------------------------------------
-
-function executeAction(result) {
-  const t0 = performance.now();
-
-  if (!mapController) {
-    showNotif('⚠ Map is not ready', 'error');
-    return performance.now() - t0;
-  }
-
-  switch (result.intent) {
-    case INTENT.ZOOM_IN:
-      mapController.zoomIn();
-      showNotif('🔍 Zoomed in', 'success');
-      break;
-
-    case INTENT.ZOOM_OUT:
-      mapController.zoomOut();
-      showNotif('🔍 Zoomed out', 'success');
-      break;
-
-    case INTENT.GO_TO: {
-      const { place, coords } = result.payload;
-      mapController.goTo(coords, 12, place);
-      showNotif(`✈ Going to ${place}`, 'success');
-      break;
-    }
-
-    case INTENT.SHOW_LAYER: {
-      const { layerId, alias } = result.payload;
-      mapController.showLayer(layerId);
-      setLayerCheckbox(layerId, true);
-      showNotif(`🗂️ Showing ${alias || layerId} layer`, 'success');
-      break;
-    }
-
-    case INTENT.HIDE_LAYER: {
-      const { layerId, alias } = result.payload;
-      mapController.hideLayer(layerId);
-      setLayerCheckbox(layerId, false);
-      showNotif(`🗂️ Hiding ${alias || layerId} layer`, 'info');
-      break;
-    }
-
-    case INTENT.ADD_MARKER: {
-      if (result.payload.useCurrentLocation) {
-        mapController.addMarkerAtCurrentLocation()
-          .then(([lat, lng]) => showNotif(`📍 Marker at ${lat.toFixed(4)}, ${lng.toFixed(4)}`, 'success'))
-          .catch((err) => showNotif(`⚠ ${err.message}`, 'error'));
-      } else {
-        const c = getMapCenter();
-        mapController.addMarker([c.lat, c.lng], '📍 Marker');
-        showNotif(`📍 Marker added`, 'success');
-      }
-      break;
-    }
-
-    case INTENT.SWITCH_MAP: {
-      const newEngine = result.payload.engine === 'openlayers'
-        ? MAP_ENGINE.OPENLAYERS
-        : MAP_ENGINE.LEAFLET;
-      if (newEngine !== currentMapEngine) {
-        switchMapEngine(newEngine);
-      } else {
-        showNotif(`Already using ${result.payload.engine}`, 'info');
-      }
-      break;
-    }
-
-    case INTENT.RESET_VIEW:
-      mapController.resetView();
-      showNotif('🌍 View reset', 'info');
-      break;
-
-    default:
-      showNotif(`❓ Command not recognised: "${result.raw}"`, 'error');
-      break;
-  }
-
-  return performance.now() - t0;
-}
-
-// ---------------------------------------------------------------------------
-// Map action callback (from MapController)
-// ---------------------------------------------------------------------------
-
-function handleMapAction({ action, latency }) {
-  // Guard: map may have been destroyed between the action completing and this
-  // callback firing (e.g. during engine switch).
-  if (!mapController || !mapController._map) return;
-
-  // Use the engine-appropriate API to read the current zoom level.
-  // OpenLayers maps do not have a .getZoom() method; the zoom is on the View.
-  if (currentMapEngine === MAP_ENGINE.LEAFLET) {
-    statusZoom.textContent = `Zoom: ${mapController._map.getZoom()}`;
-  } else {
-    const zoom = mapController._map.getView().getZoom();
-    statusZoom.textContent = `Zoom: ${zoom !== undefined ? Math.round(zoom) : '—'}`;
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Layer error callback (from MapController)
-// ---------------------------------------------------------------------------
-
-/**
- * Called by MapController when a WMS or tile layer fails to load.
- * Unchecks the layer's sidebar toggle and shows a notification so the user
- * understands why no tiles appeared without seeing a JS exception.
- *
- * @param {{ layerId: string, label: string, error: Error }} param0
- */
 function handleLayerError({ layerId, label, error }) {
-  console.warn(
-    `[VoiceGIS] Layer "${layerId}" (${label}) failed to load.`,
-    'Check for network/DNS/CORS issues or incorrect layer/parameter config.',
-    error,
-  );
-  // Uncheck the sidebar toggle so it doesn't appear "on" while no tiles show.
   setLayerCheckbox(layerId, false);
-  showNotif(`⚠ Layer "${label || layerId}" failed to load. See console for details.`, 'error');
+  showNotif(`⚠ Layer "${label || layerId}" failed to load.`, 'error');
 }
-
-// ---------------------------------------------------------------------------
-// Engine switch
-// ---------------------------------------------------------------------------
 
 function switchMapEngine(newEngine) {
   overlayMsg.textContent = `Switching to ${newEngine === MAP_ENGINE.OPENLAYERS ? 'OpenLayers' : 'Leaflet'}…`;
@@ -369,61 +210,227 @@ function switchMapEngine(newEngine) {
 }
 
 // ---------------------------------------------------------------------------
-// Log
+// Speech Engine Initialization
 // ---------------------------------------------------------------------------
 
-function addLogEntry(result, raw) {
-  // Remove placeholder text on first entry
-  if (commandLog.querySelector('[style]')) commandLog.innerHTML = '';
+async function initSpeechEngine(type) {
+  voiceBtn.disabled = true;
+  engineStatusDot.className = 'status-dot loading';
+  
+  // Clean up old engine if it exists
+  if (speechEngine && speechEngine.isListening) {
+    speechEngine.stop();
+  }
 
-  const entry   = document.createElement('div');
-  const isKnown = result.intent !== INTENT.UNKNOWN;
-  entry.className = `log-entry ${isKnown ? 'success' : 'error'}`;
+  // Handle AUTO routing explicitly in the demo
+  let actualType = type;
+  if (type === 'auto') {
+    const hasWebSpeech = typeof window !== 'undefined' && 
+      (window.SpeechRecognition || window.webkitSpeechRecognition);
+    actualType = (hasWebSpeech && navigator.onLine) ? ENGINE_TYPE.WEB_SPEECH : ENGINE_TYPE.WHISPER;
+  }
 
-  const time = new Date().toLocaleTimeString();
-  entry.innerHTML = `
-    <div class="log-time">${time}</div>
-    <div class="log-raw">"${escapeHtml(raw)}"</div>
-    <div class="log-intent">${isKnown ? result.intent : '❓ unknown'}</div>
-    <div class="log-msg">${formatPayload(result.payload)}</div>
-  `;
+  let label = 'Web Speech';
+  if (actualType === ENGINE_TYPE.TFJS) label = 'Offline Command Mode';
+  if (actualType === ENGINE_TYPE.WHISPER) label = 'Whisper Advanced';
+  if (actualType === 'server') label = 'Private Server API';
+  
+  engineStatusText.textContent = `Loading ${label}...`;
 
-  commandLog.prepend(entry);
-}
+  if (actualType === ENGINE_TYPE.WHISPER) {
+    whisperProgressContainer.style.display = 'block';
+    whisperStatusPct.textContent = '0%';
+    whisperProgressBar.style.width = '0%';
+  } else {
+    whisperProgressContainer.style.display = 'none';
+  }
 
-function formatPayload(payload) {
-  if (!payload || Object.keys(payload).length === 0) return '';
-  if (payload.place) return `→ ${payload.place}`;
-  if (payload.layerId) return `→ layer: ${payload.layerId}`;
-  if (payload.engine) return `→ engine: ${payload.engine}`;
-  if (payload.useCurrentLocation) return '→ current location';
-  return '';
+  const options = {
+    engine: actualType,
+    onResult: handleSpeechResult,
+    onError: async (err) => {
+      handleSpeechError(err);
+      
+      // Auto fallback logic
+      if (type === 'auto') {
+        if (actualType === ENGINE_TYPE.WEB_SPEECH) {
+          showNotif('WebSpeech failed, falling back to Whisper...', 'warning');
+          await initSpeechEngine(ENGINE_TYPE.WHISPER);
+        } else if (actualType === ENGINE_TYPE.WHISPER) {
+          showNotif('Whisper failed, falling back to Command Mode...', 'warning');
+          await initSpeechEngine(ENGINE_TYPE.TFJS);
+        }
+      }
+    },
+    onStart: () => {
+      voiceBtn.classList.remove('pulse-idle', 'processing');
+      voiceBtn.classList.add('listening');
+      startAudioCapture();
+    },
+    onEnd: () => {
+      voiceBtn.classList.remove('listening', 'processing');
+      voiceBtn.classList.add('pulse-idle');
+      stopAudioCapture();
+    },
+  };
+
+  if (actualType === ENGINE_TYPE.WHISPER) {
+    options.onModelProgress = (info) => {
+      const pct = Math.round(info.progress * 100);
+      whisperStatusText.textContent = info.status;
+      whisperStatusPct.textContent = `${pct}%`;
+      whisperProgressBar.style.width = `${pct}%`;
+    };
+    options.onStateChange = (state) => {
+      if (state === WHISPER_STATE.PROCESSING) {
+        voiceBtn.classList.remove('listening', 'pulse-idle');
+        voiceBtn.classList.add('processing');
+        transcriptEl.textContent = 'Processing audio...';
+        transcriptEl.className = 'interim';
+      }
+    };
+  }
+  
+  if (actualType === 'server') {
+    options.apiUrl = 'http://localhost:8000/transcribe';
+  }
+
+  // Use the legacy SpeechEngine wrapper for the demo for now,
+  // which will route to createEngine under the hood.
+  speechEngine = new SpeechEngine(options);
+
+  try {
+    await speechEngine.init();
+    
+    // Update UI Status Pill
+    engineStatusDot.className = 'status-dot online';
+    if (actualType === ENGINE_TYPE.WHISPER) {
+      engineStatusText.textContent = 'Whisper AI';
+      setTimeout(() => { whisperProgressContainer.style.display = 'none'; }, 1000);
+    } else if (actualType === ENGINE_TYPE.TFJS) {
+      engineStatusText.textContent = 'Command Mode';
+    } else if (actualType === 'server') {
+      engineStatusText.textContent = 'Server API';
+    } else {
+      engineStatusText.textContent = 'Web Speech';
+    }
+    
+    voiceBtn.disabled = false;
+  } catch (err) {
+    showNotif(`⚠ Speech engine failed: ${err.message}`, 'error');
+    engineStatusDot.className = 'status-dot error';
+    engineStatusText.textContent = 'Engine Error';
+  }
 }
 
 // ---------------------------------------------------------------------------
-// Stats update
+// Speech Result Handling
+// ---------------------------------------------------------------------------
+
+async function handleSpeechResult(text, isFinal) {
+  transcriptEl.textContent = text || '...';
+  transcriptEl.className   = isFinal ? 'final' : 'interim';
+
+  if (!isFinal || !text) return;
+
+  const t0 = performance.now();
+  const result = await parseCommand(text);
+  const parseTime = performance.now() - t0;
+
+  const actionLatency = executeAction(result);
+
+  tracker.recordCommand({
+    raw: text,
+    intent: result.intent,
+    payload: result.payload,
+    confidence: result.confidence,
+    latency: actionLatency + parseTime,
+  });
+
+  updateStats();
+}
+
+function handleSpeechError(err) {
+  showNotif(`🎙️ ${err.message}`, 'error');
+  voiceBtn.classList.remove('listening', 'processing');
+  voiceBtn.classList.add('pulse-idle');
+}
+
+// ---------------------------------------------------------------------------
+// Action Execution
+// ---------------------------------------------------------------------------
+
+function executeAction(result) {
+  const t0 = performance.now();
+
+  if (!mapController) return performance.now() - t0;
+
+  switch (result.intent) {
+    case INTENT.ZOOM_IN:
+      mapController.zoomIn();
+      showNotif('🔍 Zoomed in', 'success');
+      break;
+    case INTENT.ZOOM_OUT:
+      mapController.zoomOut();
+      showNotif('🔍 Zoomed out', 'success');
+      break;
+    case INTENT.GO_TO:
+      mapController.goTo(result.payload.coords, 12, result.payload.place);
+      showNotif(`✈ Going to ${result.payload.place}`, 'success');
+      break;
+    case INTENT.SHOW_LAYER:
+      mapController.showLayer(result.payload.layerId);
+      setLayerCheckbox(result.payload.layerId, true);
+      showNotif(`🗂️ Showing ${result.payload.alias || result.payload.layerId}`, 'success');
+      break;
+    case INTENT.HIDE_LAYER:
+      mapController.hideLayer(result.payload.layerId);
+      setLayerCheckbox(result.payload.layerId, false);
+      showNotif(`🗂️ Hiding ${result.payload.alias || result.payload.layerId}`, 'info');
+      break;
+    case INTENT.ADD_MARKER:
+      if (result.payload.useCurrentLocation) {
+        mapController.addMarkerAtCurrentLocation()
+          .then(([lat, lng]) => showNotif(`📍 Marker at ${lat.toFixed(4)}, ${lng.toFixed(4)}`, 'success'))
+          .catch((err) => showNotif(`⚠ ${err.message}`, 'error'));
+      } else {
+        const c = mapController.getCenter();
+        mapController.addMarker([c.lat, c.lng], '📍 Marker');
+        showNotif(`📍 Marker added`, 'success');
+      }
+      break;
+    case INTENT.SWITCH_MAP:
+      const newEngine = result.payload.engine === 'openlayers' ? MAP_ENGINE.OPENLAYERS : MAP_ENGINE.LEAFLET;
+      if (newEngine !== currentMapEngine) switchMapEngine(newEngine);
+      break;
+    case INTENT.RESET_VIEW:
+      mapController.resetView();
+      showNotif('🌍 View reset', 'info');
+      break;
+    default:
+      showNotif(`❓ Unrecognized: "${result.raw}"`, 'warning');
+      break;
+  }
+
+  return performance.now() - t0;
+}
+
+// ---------------------------------------------------------------------------
+// UI Utilities & Event Listeners
 // ---------------------------------------------------------------------------
 
 function updateStats() {
   const s = tracker.getStats();
-  statTotal.textContent      = s.total;
+  statTotal.textContent = s.total;
   statRecognized.textContent = s.recognized;
-  statUnknown.textContent    = s.unknown;
-  statAccuracy.textContent   = s.accuracy !== null ? `${(s.accuracy * 100).toFixed(1)}%` : '—';
-  statConfidence.textContent = s.avgConfidence !== null ? s.avgConfidence.toFixed(2) : '—';
-  statLatency.textContent    = s.avgLatency !== null ? `${s.avgLatency.toFixed(1)} ms` : '—';
+  statUnknown.textContent = s.unknown;
+  statAccuracy.textContent = s.accuracy !== null ? `${(s.accuracy * 100).toFixed(1)}%` : '—';
+  statLatency.textContent = s.avgLatency !== null ? `${s.avgLatency.toFixed(0)} ms` : '—';
 
-  const sec  = Math.floor(s.sessionDurationMs / 1000);
+  const sec = Math.floor(s.sessionDurationMs / 1000);
   const mins = Math.floor(sec / 60);
-  statSession.textContent    = mins > 0 ? `${mins}m ${sec % 60}s` : `${sec}s`;
+  statSession.textContent = mins > 0 ? `${mins}m ${sec % 60}s` : `${sec}s`;
 }
-
-// Update session timer every second
-setInterval(updateStats, 1000);
-
-// ---------------------------------------------------------------------------
-// Notifications
-// ---------------------------------------------------------------------------
 
 function showNotif(msg, type = 'info') {
   const el = document.createElement('div');
@@ -433,133 +440,110 @@ function showNotif(msg, type = 'info') {
   setTimeout(() => el.remove(), 3200);
 }
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/**
- * Get the current map center as { lat, lng }, regardless of the active engine.
- * @returns {{ lat: number, lng: number }}
- */
-function getMapCenter() {
-  if (!mapController || !mapController._map) return { lat: 0, lng: 0 };
-
-  if (currentMapEngine === MAP_ENGINE.LEAFLET) {
-    return mapController._map.getCenter();
-  }
-
-  const ol = window.ol;
-  const coord = ol.proj.toLonLat(mapController._map.getView().getCenter());
-  return { lat: coord[1], lng: coord[0] };
+// Drawer Handlers
+function toggleDrawer() {
+  settingsDrawer.classList.toggle('open');
+  drawerBackdrop.classList.toggle('open');
 }
+settingsToggle.addEventListener('click', toggleDrawer);
+drawerClose.addEventListener('click', toggleDrawer);
+drawerBackdrop.addEventListener('click', toggleDrawer);
 
-function escapeHtml(str) {
-  return String(str)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
-}
-
-// ---------------------------------------------------------------------------
-// Event wiring
-// ---------------------------------------------------------------------------
-
-// Voice toggle button — only active when the speech engine is fully ready
+// Voice Button & Hotkey
 voiceBtn.addEventListener('click', () => {
-  if (speechEngine && speechEngine.isInitialized) {
-    speechEngine.toggle();
-  }
+  if (speechEngine && speechEngine.isInitialized) speechEngine.toggle();
 });
-
-// Keyboard shortcut: Space toggles listening when not in an input
 document.addEventListener('keydown', (e) => {
   if (e.code === 'Space' && e.target.tagName !== 'INPUT' && e.target.tagName !== 'SELECT') {
     e.preventDefault();
-    if (speechEngine && speechEngine.isInitialized) {
-      speechEngine.toggle();
-    }
+    if (speechEngine && speechEngine.isInitialized) speechEngine.toggle();
   }
 });
 
-// Engine selector — disable voice button until re-init completes
+// Map controls
+document.getElementById('btn-zoom-in').addEventListener('click', () => mapController?.zoomIn());
+document.getElementById('btn-zoom-out').addEventListener('click', () => mapController?.zoomOut());
+document.getElementById('btn-reset').addEventListener('click', () => mapController?.resetView());
+document.getElementById('btn-locate').addEventListener('click', () => mapController?.addMarkerAtCurrentLocation());
+
+// Engine & Map Selects
 engineSelect.addEventListener('change', () => {
-  const type = engineSelect.value === 'tfjs' ? ENGINE_TYPE.TFJS : ENGINE_TYPE.WEB_SPEECH;
-  voiceBtn.disabled = true;
+  const type = engineSelect.value; // 'webspeech', 'tfjs', 'whisper'
   initSpeechEngine(type);
 });
-
-// Map selector
 mapSelect.addEventListener('change', () => {
   const newEngine = mapSelect.value === 'openlayers' ? MAP_ENGINE.OPENLAYERS : MAP_ENGINE.LEAFLET;
   if (newEngine !== currentMapEngine) switchMapEngine(newEngine);
 });
 
-// Quick action buttons — guard against mapController not yet ready
-document.getElementById('btn-zoom-in').addEventListener('click',  () => mapController ? mapController.zoomIn()   : showNotif('⚠ Map is not ready', 'error'));
-document.getElementById('btn-zoom-out').addEventListener('click', () => mapController ? mapController.zoomOut()  : showNotif('⚠ Map is not ready', 'error'));
-document.getElementById('btn-reset').addEventListener('click',    () => mapController ? mapController.resetView(): showNotif('⚠ Map is not ready', 'error'));
-document.getElementById('btn-locate').addEventListener('click',   () => {
-  if (mapController) {
-    mapController.addMarkerAtCurrentLocation()
-      .catch((e) => showNotif(`⚠ ${e.message}`, 'error'));
-  } else {
-    showNotif('⚠ Map is not ready', 'error');
-  }
-});
-
-// Sidebar tabs
-document.querySelectorAll('.tab-btn').forEach((btn) => {
-  btn.addEventListener('click', () => {
-    document.querySelectorAll('.tab-btn').forEach((b) => b.classList.remove('active'));
-    document.querySelectorAll('.tab-panel').forEach((p) => p.classList.remove('active'));
-    btn.classList.add('active');
-    document.getElementById(`tab-${btn.dataset.tab}`).classList.add('active');
-  });
-});
-
-// Help modal
-helpBtn.addEventListener('click', () => helpModal.classList.add('open'));
-modalCloseBtn.addEventListener('click', () => helpModal.classList.remove('open'));
-helpModal.addEventListener('click', (e) => {
-  if (e.target === helpModal) helpModal.classList.remove('open');
-});
-document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape') helpModal.classList.remove('open');
-});
-
-// Export buttons
+// Stats Buttons
 document.getElementById('export-json').addEventListener('click', () => {
-  const data = tracker.exportJSON();
-  downloadFile(data, 'voicegis-session.json', 'application/json');
+  downloadFile(tracker.exportJSON(), 'voicegis-session.json', 'application/json');
 });
 document.getElementById('export-csv').addEventListener('click', () => {
-  const data = tracker.exportCSV();
-  downloadFile(data, 'voicegis-session.csv', 'text/csv');
+  downloadFile(tracker.exportCSV(), 'voicegis-session.csv', 'text/csv');
 });
 document.getElementById('reset-stats').addEventListener('click', () => {
   tracker.reset();
-  commandLog.innerHTML = '<div style="color:var(--text-muted);font-size:.8rem;text-align:center;padding:20px 0;">No commands yet.</div>';
   updateStats();
 });
 
 function downloadFile(content, filename, mime) {
   const blob = new Blob([content], { type: mime });
-  const url  = URL.createObjectURL(blob);
-  const a    = document.createElement('a');
-  a.href     = url;
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
   a.download = filename;
   a.click();
   URL.revokeObjectURL(url);
 }
 
 // ---------------------------------------------------------------------------
+// PWA & Offline Support
+// ---------------------------------------------------------------------------
+
+function updateOnlineStatus() {
+  if (navigator.onLine) {
+    offlineBanner.classList.remove('visible');
+    // If we are in auto mode and came back online, we could switch to WebSpeech.
+    if (engineSelect.value === 'auto' && speechEngine?.engine !== ENGINE_TYPE.WEB_SPEECH) {
+      showNotif('Back online, switching to Cloud engine...', 'info');
+      initSpeechEngine('auto');
+    }
+  } else {
+    offlineBanner.classList.add('visible');
+    // If we are in auto mode and went offline, switch to Whisper automatically.
+    if (engineSelect.value === 'auto' && speechEngine?.engine === ENGINE_TYPE.WEB_SPEECH) {
+      showNotif('Went offline, switching to Whisper Engine...', 'warning');
+      initSpeechEngine('auto');
+    }
+  }
+}
+
+window.addEventListener('online', updateOnlineStatus);
+window.addEventListener('offline', updateOnlineStatus);
+
+function registerServiceWorker() {
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('./sw.js')
+      .then((reg) => console.log('[ServiceWorker] Registered', reg.scope))
+      .catch((err) => console.error('[ServiceWorker] Registration failed', err));
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Bootstrap
 // ---------------------------------------------------------------------------
 
+setInterval(updateStats, 1000);
+
 (async () => {
+  updateOnlineStatus();
+  registerServiceWorker();
+  
+  initAudioVisualization();
   initMap(MAP_ENGINE.LEAFLET);
-  await initSpeechEngine(ENGINE_TYPE.WEB_SPEECH);
+  await initSpeechEngine('auto');
   updateStats();
-  showNotif('🗺️ VoiceGIS ready — click 🎙️ or press Space to start', 'info');
+  showNotif('🗺️ VoiceGIS ready. Tap 🎙️ or press Space to start.', 'info');
 })();

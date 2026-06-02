@@ -1,59 +1,59 @@
 # VoiceGIS API Reference
 
-## `SpeechEngine`
+VoiceGIS exports its modules under a top-level orchestrator class, as well as individual modules for advanced use cases.
 
-```
-new SpeechEngine(options)
+---
+
+## `VoiceGIS` Orchestrator
+
+The main entry point for most applications.
+
+```js
+import { VoiceGIS } from 'voicegis';
+
+const app = new VoiceGIS(options);
 ```
 
 ### Constructor options
 
 | Option | Type | Default | Description |
 |---|---|---|---|
-| `engine` | `string` | `'webspeech'` | `ENGINE_TYPE.WEB_SPEECH` or `ENGINE_TYPE.TFJS` |
-| `onResult` | `(text, isFinal) => void` | — | Fired on each recognition result |
-| `onError` | `(Error) => void` | `console.error` | Fired on recognition error |
-| `onStart` | `() => void` | noop | Fired when recognition starts |
-| `onEnd` | `() => void` | noop | Fired when recognition ends |
-| `tfjsThreshold` | `number` | `0.75` | Confidence threshold for TF.js keyword model (0–1) |
+| `mapEngine` | `string` | `'leaflet'` | `'leaflet'` or `'openlayers'` |
+| `mapContainerId` | `string` | `'map'` | ID of the container `<div>` |
+| `speechEngine` | `string` | `'webspeech'` | `'webspeech'`, `'whisper'`, or `'tfjs'` |
+| `autoExecute` | `boolean` | `true` | If true, automatically executes parsed commands on the map |
+| `onStateChange` | `(state: string) => void` | noop | Fired when the speech engine state changes |
+| `onCommandParsed` | `(result, text) => void`| noop | Fired when a command is parsed |
 
 ### Methods
 
 | Method | Returns | Description |
 |---|---|---|
-| `init()` | `Promise<void>` | Load/initialise the chosen engine |
-| `start()` | `void` | Begin listening |
-| `stop()` | `void` | Stop listening |
-| `toggle()` | `void` | Toggle start/stop |
-
-### Properties
-
-| Property | Type | Description |
-|---|---|---|
-| `isListening` | `boolean` | Whether engine is currently listening |
-
-### Constants
-
-```js
-import { ENGINE_TYPE } from './src/speechEngine.js';
-ENGINE_TYPE.WEB_SPEECH  // 'webspeech'
-ENGINE_TYPE.TFJS        // 'tfjs'
-```
+| `initSpeech()` | `Promise<void>` | Initializes the speech engine |
+| `start()` | `void` | Starts listening for speech |
+| `stop()` | `void` | Stops listening |
+| `registerCommand(intent, regex, action)` | `void` | Registers a custom command |
 
 ---
 
 ## `parseCommand(text)`
 
+The core NLP parser for turning transcripts into structured intents.
+
+```js
+import { parseCommand } from 'voicegis/parser';
+
+const result = await parseCommand("fly to paris");
 ```
-parseCommand(text: string) → CommandResult
-```
+
+> **Note**: `parseCommand` is **asynchronous** because it may need to hit the Nominatim API for geocoding unknown cities.
 
 ### `CommandResult`
 
 | Field | Type | Description |
 |---|---|---|
 | `intent` | `string` | One of the `INTENT` values |
-| `payload` | `object` | Intent-specific data (see below) |
+| `payload` | `object` | Intent-specific data |
 | `raw` | `string` | Original input text |
 | `confidence` | `number` | Parser confidence 0–1 |
 
@@ -71,89 +71,54 @@ parseCommand(text: string) → CommandResult
 | `reset_view` | `{}` |
 | `unknown` | `{}` |
 
-### Helper exports
+---
+
+## `Geocoder`
+
+A Nominatim API wrapper with LRU caching and rate limiting.
 
 ```js
-import { resolveCity, resolveLayer, CITY_COORDS, LAYER_ALIASES, INTENT } from './src/commandParser.js';
+import { Geocoder } from 'voicegis/parser';
 
-resolveCity('paris')     // → [48.8566, 2.3522]
-resolveLayer('road')     // → 'osm'
+const geocoder = new Geocoder({
+  baseUrl: 'https://nominatim.openstreetmap.org/search',
+  cacheSize: 50,
+  rateLimitMs: 1100
+});
+
+const coords = await geocoder.geocode("Ahmedabad"); // [lat, lng]
+```
+
+---
+
+## `WhisperEngine`
+
+The on-device Transformers.js integration.
+
+```js
+import { WhisperEngine } from 'voicegis/engines';
+
+const engine = new WhisperEngine({
+  onResult: (text) => console.log(text),
+  onModelProgress: (info) => console.log(`${info.status}: ${info.progress}%`)
+});
+await engine.init();
+engine.start();
 ```
 
 ---
 
 ## `MapController`
 
-```
-new MapController(options)
-```
-
-### Constructor options
-
-| Option | Type | Default | Description |
-|---|---|---|---|
-| `engine` | `string` | `'leaflet'` | `MAP_ENGINE.LEAFLET` or `MAP_ENGINE.OPENLAYERS` |
-| `containerId` | `string` | `'map'` | ID of the container `<div>` |
-| `onAction` | `(ActionEvent) => void` | noop | Called after each map mutation |
-
-### `ActionEvent`
-
 ```js
-{ action: string, latency: number, /* intent-specific fields */ }
+import { MapController } from 'voicegis/map';
+
+const mapCtrl = new MapController({
+  engine: 'leaflet',
+  containerId: 'map'
+});
+mapCtrl.init();
+mapCtrl.goTo([48.8566, 2.3522], 12, 'Paris');
 ```
 
-### Methods
-
-| Method | Returns | Description |
-|---|---|---|
-| `init()` | `void` | Create and render the map |
-| `destroy()` | `void` | Destroy the map instance |
-| `zoomIn()` | `void` | Increase zoom level by 1 |
-| `zoomOut()` | `void` | Decrease zoom level by 1 |
-| `goTo(latLng, zoom?, label?)` | `void` | Fly/pan to coordinates |
-| `resetView()` | `void` | Return to default world view |
-| `showLayer(layerId)` | `void` | Add/show a layer |
-| `hideLayer(layerId)` | `void` | Remove/hide a layer |
-| `addMarker(latLng, popupText?)` | `void` | Place a marker |
-| `addMarkerAtCurrentLocation()` | `Promise<[lat,lng]>` | Geolocate and add marker |
-
-### Constants
-
-```js
-import { MAP_ENGINE, LAYER_DEFS } from './src/mapController.js';
-MAP_ENGINE.LEAFLET      // 'leaflet'
-MAP_ENGINE.OPENLAYERS   // 'openlayers'
-```
-
----
-
-## `EvaluationTracker`
-
-```
-new EvaluationTracker()
-```
-
-### Methods
-
-| Method | Returns | Description |
-|---|---|---|
-| `recordCommand(opts)` | `CommandRecord` | Add a command record |
-| `markCorrection(correction, id?)` | `void` | Flag last/given record as incorrect |
-| `getStats()` | `Stats` | Compute aggregate statistics |
-| `exportJSON()` | `string` | JSON export of records + stats |
-| `exportCSV()` | `string` | CSV export of records |
-| `reset()` | `void` | Clear all records |
-
-### `Stats`
-
-| Field | Type | Description |
-|---|---|---|
-| `total` | `number` | Total commands |
-| `recognized` | `number` | Commands with a known intent |
-| `unknown` | `number` | Commands with `unknown` intent |
-| `corrected` | `number` | User-corrected commands |
-| `accuracy` | `number \| null` | `(recognized - corrected) / total` |
-| `avgConfidence` | `number \| null` | Mean parser confidence |
-| `avgLatency` | `number \| null` | Mean action execution time (ms) |
-| `intentBreakdown` | `Record<string,number>` | Count per intent type |
-| `sessionDurationMs` | `number` | Time since tracker creation |
+See the [source code](https://github.com/sanishkumar/VoiceGIS) for full class definitions.

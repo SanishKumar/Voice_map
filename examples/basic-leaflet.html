@@ -58,9 +58,9 @@
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script type="module">
-    import { SpeechEngine, ENGINE_TYPE } from '../src/speechEngine.js';
-    import { parseCommand, INTENT }       from '../src/commandParser.js';
-    import { MapController, MAP_ENGINE }  from '../src/mapController.js';
+    import { SpeechEngine, ENGINE_TYPE } from '../src/engines/index.js';
+    import { parseCommand, INTENT }       from '../src/parser/index.js';
+    import { MapController, MAP_ENGINE }  from '../src/map/index.js';
 
     // --- Map setup ---
     const mapCtrl = new MapController({
@@ -72,11 +72,11 @@
     // --- Speech engine ---
     const speech = new SpeechEngine({
       engine: ENGINE_TYPE.WEB_SPEECH,
-      onResult(text, isFinal) {
+      async onResult(text, isFinal) {
         document.getElementById('transcript').textContent = text;
         if (!isFinal) return;
 
-        const result = parseCommand(text);
+        const result = await parseCommand(text);
         logCommand(text, result);
 
         switch (result.intent) {

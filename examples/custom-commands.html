@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>VoiceGIS — Custom Commands</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+  <style>
+    body, html { margin: 0; padding: 0; height: 100%; font-family: sans-serif; }
+    #map { width: 100%; height: 100%; }
+    
+    #controls {
+      position: absolute;
+      top: 20px;
+      right: 20px;
+      background: white;
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      z-index: 1000;
+      width: 300px;
+    }
+
+    button {
+      width: 100%;
+      padding: 10px;
+      background: #8b5cf6;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      font-size: 16px;
+      cursor: pointer;
+      margin-top: 10px;
+    }
+    button:disabled { background: #9ca3af; }
+
+    #transcript {
+      margin-top: 15px;
+      font-size: 14px;
+      color: #4b5563;
+      min-height: 40px;
+      font-style: italic;
+    }
+
+    .hint {
+      margin-top: 15px;
+      font-size: 13px;
+      color: #6b7280;
+      border-top: 1px solid #e5e7eb;
+      padding-top: 10px;
+    }
+  </style>
+</head>
+<body>
+
+  <div id="map"></div>
+
+  <div id="controls">
+    <h3>Custom Voice Commands</h3>
+    <button id="mic-btn" disabled>🎙️ Start Listening</button>
+    <div id="transcript">Waiting for speech...</div>
+    <div class="hint">
+      <strong>Try saying:</strong><br/>
+      - "Toggle dark mode"<br/>
+      - "Switch to dark theme"<br/>
+      - "Draw a circle"<br/>
+    </div>
+  </div>
+
+  <script type="module">
+    import { VoiceGIS } from '../src/VoiceGIS.js';
+
+    const transcriptEl = document.getElementById('transcript');
+    const micBtn = document.getElementById('mic-btn');
+
+    const app = new VoiceGIS({
+      mapEngine: 'leaflet',
+      mapContainerId: 'map',
+      speechEngine: 'webspeech',
+      autoExecute: true,
+      onCommandParsed: (result, rawText) => {
+        transcriptEl.innerHTML = `<b>Text:</b> "${rawText}"<br/><b>Intent:</b> ${result.intent}`;
+      }
+    });
+
+    // 1. Register a command to change UI theme
+    app.registerCommand('TOGGLE_DARK_MODE', /(switch|toggle) (to )?(dark|light) (mode|theme)/i, (mapController, match) => {
+      const mode = match[3].toLowerCase();
+      if (mode === 'dark') {
+        document.getElementById('controls').style.background = '#1f2937';
+        document.getElementById('controls').style.color = '#f3f4f6';
+      } else {
+        document.getElementById('controls').style.background = '#ffffff';
+        document.getElementById('controls').style.color = '#000000';
+      }
+    });
+
+    // 2. Register a command to draw a circle on the map
+    app.registerCommand('DRAW_CIRCLE', /draw (a )?circle/i, (mapController, match) => {
+      // Access the underlying map controller API
+      const center = mapController._map.getCenter();
+      
+      // In a real app, you would add this to MapController, but we can access Leaflet directly here
+      if (mapController._engine === 'leaflet') {
+        window.L.circle([center.lat, center.lng], {
+          color: 'red',
+          fillColor: '#f03',
+          fillOpacity: 0.5,
+          radius: 500
+        }).addTo(mapController._adapter._leafletMap);
+      }
+    });
+
+    app.initSpeech().then(() => {
+      micBtn.disabled = false;
+    });
+
+    let isListening = false;
+    micBtn.addEventListener('click', () => {
+      if (!isListening) {
+        app.start();
+        micBtn.textContent = "🛑 Stop Listening";
+        isListening = true;
+      } else {
+        app.stop();
+        micBtn.textContent = "🎙️ Start Listening";
+        isListening = false;
+      }
+    });
+  </script>
+</body>
+</html>

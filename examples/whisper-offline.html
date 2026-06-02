@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>VoiceGIS — Offline Whisper AI</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+  <style>
+    body, html { margin: 0; padding: 0; height: 100%; font-family: sans-serif; }
+    #map { width: 100%; height: 100%; }
+    
+    #controls {
+      position: absolute;
+      top: 20px;
+      right: 20px;
+      background: white;
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      z-index: 1000;
+      width: 320px;
+    }
+
+    button {
+      width: 100%;
+      padding: 10px;
+      background: #ef4444;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      font-size: 16px;
+      cursor: pointer;
+      margin-top: 10px;
+    }
+    button:disabled { background: #9ca3af; }
+
+    #transcript {
+      margin-top: 15px;
+      font-size: 14px;
+      color: #4b5563;
+      min-height: 40px;
+      font-style: italic;
+    }
+
+    #progress {
+      font-size: 12px;
+      color: #2563eb;
+      margin-top: 10px;
+      font-weight: bold;
+    }
+  </style>
+</head>
+<body>
+
+  <div id="map"></div>
+
+  <div id="controls">
+    <h3>Whisper AI (On-Device)</h3>
+    <p style="font-size: 12px; color: #6b7280; margin-top: -10px;">
+      Downloads a ~40MB AI model to your browser cache. Once loaded, it works completely offline!
+    </p>
+    <div id="progress">Waiting to start...</div>
+    <button id="mic-btn" disabled>🎙️ Start Listening</button>
+    <div id="transcript">Waiting for speech...</div>
+  </div>
+
+  <script type="module">
+    import { VoiceGIS } from '../src/VoiceGIS.js';
+
+    const transcriptEl = document.getElementById('transcript');
+    const progressEl = document.getElementById('progress');
+    const micBtn = document.getElementById('mic-btn');
+
+    const app = new VoiceGIS({
+      mapEngine: 'leaflet',
+      mapContainerId: 'map',
+      speechEngine: 'whisper', // Use Whisper!
+      autoExecute: true,
+      
+      onStateChange: (state) => {
+        if (state === 'LISTENING') progressEl.textContent = 'Listening for silence...';
+        else if (state === 'PROCESSING') progressEl.textContent = 'Transcribing...';
+        else progressEl.textContent = `State: ${state}`;
+      },
+      
+      onCommandParsed: (result, rawText) => {
+        transcriptEl.innerHTML = `<b>Text:</b> "${rawText}"<br/><b>Intent:</b> ${result.intent}`;
+      }
+    });
+
+    // We can hook into the inner Whisper engine progress callback
+    app.initSpeech().then(() => {
+      // Setup model progress
+      app._speech._delegate.onModelProgress = (info) => {
+        progressEl.textContent = `Downloading AI Model: ${info.status} - ${Math.round(info.progress * 100)}%`;
+      };
+      
+      progressEl.textContent = "Click 'Start Listening' to load model";
+      micBtn.disabled = false;
+    });
+
+    let isListening = false;
+    micBtn.addEventListener('click', () => {
+      if (!isListening) {
+        app.start();
+        micBtn.textContent = "🛑 Stop Listening";
+        isListening = true;
+      } else {
+        app.stop();
+        micBtn.textContent = "🎙️ Start Listening";
+        isListening = false;
+      }
+    });
+  </script>
+</body>
+</html>

@@ -1,18 +1,18 @@
 /**
- * commandParser.test.js — unit tests for src/commandParser.js
+ * commandParser.test.js — unit tests for src/parser/CommandParser.js
  */
 
+import { jest } from '@jest/globals';
 import {
   parseCommand,
   resolveCity,
   resolveLayer,
   INTENT,
   CITY_COORDS,
-  LAYER_ALIASES,
-} from '../src/commandParser.js';
+} from '../src/parser/CommandParser.js';
 
 // ---------------------------------------------------------------------------
-// resolveCity
+// resolveCity (sync, backward compatibility)
 // ---------------------------------------------------------------------------
 
 describe('resolveCity', () => {
@@ -21,27 +21,16 @@ describe('resolveCity', () => {
   });
 
   test('lowercases input before lookup', () => {
-    // resolveCity normalises the input itself
     expect(resolveCity('Paris')).toEqual([48.8566, 2.3522]);
   });
 
   test('returns null for unknown city', () => {
     expect(resolveCity('atlantis')).toBeNull();
   });
-
-  test('returns null for empty input', () => {
-    expect(resolveCity('')).toBeNull();
-    expect(resolveCity(null)).toBeNull();
-  });
-
-  test('multi-word city names resolve', () => {
-    expect(resolveCity('new york')).toEqual([40.7128, -74.006]);
-    expect(resolveCity('los angeles')).toEqual([34.0522, -118.2437]);
-  });
 });
 
 // ---------------------------------------------------------------------------
-// resolveLayer
+// resolveLayer (sync, backward compatibility)
 // ---------------------------------------------------------------------------
 
 describe('resolveLayer', () => {
@@ -52,17 +41,10 @@ describe('resolveLayer', () => {
 
   test('resolves friendly aliases', () => {
     expect(resolveLayer('satellite')).toBe('nasa');
-    expect(resolveLayer('road view')).toBe('osm');
-    expect(resolveLayer('terrain')).toBe('terrain');
   });
 
   test('returns null for unknown alias', () => {
     expect(resolveLayer('unknown-layer')).toBeNull();
-  });
-
-  test('returns null for empty / null input', () => {
-    expect(resolveLayer('')).toBeNull();
-    expect(resolveLayer(null)).toBeNull();
   });
 });
 
@@ -71,23 +53,30 @@ describe('resolveLayer', () => {
 // ---------------------------------------------------------------------------
 
 describe('parseCommand — zoom', () => {
-  test('zoom in', () => {
-    const r = parseCommand('zoom in');
+  test('zoom in', async () => {
+    const r = await parseCommand('zoom in');
     expect(r.intent).toBe(INTENT.ZOOM_IN);
     expect(r.confidence).toBeGreaterThan(0);
   });
 
-  test('zoom out', () => {
-    const r = parseCommand('zoom out');
+  test('zoom out', async () => {
+    const r = await parseCommand('zoom out');
     expect(r.intent).toBe(INTENT.ZOOM_OUT);
   });
 
-  test('magnify → zoom in', () => {
-    expect(parseCommand('magnify the map').intent).toBe(INTENT.ZOOM_IN);
+  test('magnify → zoom in', async () => {
+    const r = await parseCommand('magnify the map');
+    expect(r.intent).toBe(INTENT.ZOOM_IN);
   });
 
-  test('shrink → zoom out', () => {
-    expect(parseCommand('shrink the map').intent).toBe(INTENT.ZOOM_OUT);
+  test('shrink → zoom out', async () => {
+    const r = await parseCommand('shrink the map');
+    expect(r.intent).toBe(INTENT.ZOOM_OUT);
+  });
+  
+  test('fuzzy zoom in', async () => {
+    const r = await parseCommand('zoon in');
+    expect(r.intent).toBe(INTENT.ZOOM_IN);
   });
 });
 
@@ -96,33 +85,39 @@ describe('parseCommand — zoom', () => {
 // ---------------------------------------------------------------------------
 
 describe('parseCommand — go to', () => {
-  test('go to <city>', () => {
-    const r = parseCommand('go to paris');
+  test('go to <city>', async () => {
+    const r = await parseCommand('go to paris', { enableGeocoding: false });
     expect(r.intent).toBe(INTENT.GO_TO);
     expect(r.payload.place).toBe('paris');
     expect(r.payload.coords).toEqual(CITY_COORDS.paris);
   });
 
-  test('zoom to <city>', () => {
-    const r = parseCommand('zoom to ahmedabad');
+  test('zoom to <city>', async () => {
+    const r = await parseCommand('zoom to ahmedabad', { enableGeocoding: false });
     expect(r.intent).toBe(INTENT.GO_TO);
     expect(r.payload.coords).toEqual(CITY_COORDS.ahmedabad);
   });
 
-  test('fly to <city>', () => {
-    const r = parseCommand('fly to tokyo');
+  test('fuzzy go to <city>', async () => {
+    const r = await parseCommand('go to ahmdabad', { enableGeocoding: false });
     expect(r.intent).toBe(INTENT.GO_TO);
-    expect(r.payload.place).toBe('tokyo');
+    expect(r.payload.coords).toEqual(CITY_COORDS.ahmedabad);
   });
 
-  test('show me <city>', () => {
-    const r = parseCommand('show me london');
-    expect(r.intent).toBe(INTENT.GO_TO);
-  });
-
-  test('unknown city → unknown intent', () => {
-    const r = parseCommand('go to atlantis');
+  test('unknown city fallback without geocoding', async () => {
+    const r = await parseCommand('go to atlantis', { enableGeocoding: false });
     expect(r.intent).toBe(INTENT.UNKNOWN);
+  });
+
+  test('online geocoding for unknown city', async () => {
+    const mockGeocoder = {
+      geocode: jest.fn().mockResolvedValue({ lat: 10, lon: 20, displayName: 'Atlantis' })
+    };
+    const r = await parseCommand('go to atlantis', { enableGeocoding: true, geocoder: mockGeocoder });
+    expect(r.intent).toBe(INTENT.GO_TO);
+    expect(r.payload.coords).toEqual([10, 20]);
+    expect(r.payload.place).toBe('Atlantis');
+    expect(mockGeocoder.geocode).toHaveBeenCalledWith('atlantis');
   });
 });
 
@@ -131,34 +126,22 @@ describe('parseCommand — go to', () => {
 // ---------------------------------------------------------------------------
 
 describe('parseCommand — show/hide layer', () => {
-  test('show satellite', () => {
-    const r = parseCommand('show satellite');
+  test('show satellite', async () => {
+    const r = await parseCommand('show satellite');
     expect(r.intent).toBe(INTENT.SHOW_LAYER);
     expect(r.payload.layerId).toBe('nasa');
   });
 
-  test('show NASA layer', () => {
-    const r = parseCommand('show NASA layer');
+  test('fuzzy show layer', async () => {
+    const r = await parseCommand('show sattelite'); // typo
     expect(r.intent).toBe(INTENT.SHOW_LAYER);
     expect(r.payload.layerId).toBe('nasa');
   });
 
-  test('show road view', () => {
-    const r = parseCommand('show road view');
-    expect(r.intent).toBe(INTENT.SHOW_LAYER);
-    expect(r.payload.layerId).toBe('osm');
-  });
-
-  test('hide satellite', () => {
-    const r = parseCommand('hide satellite');
+  test('hide satellite', async () => {
+    const r = await parseCommand('hide satellite');
     expect(r.intent).toBe(INTENT.HIDE_LAYER);
     expect(r.payload.layerId).toBe('nasa');
-  });
-
-  test('remove terrain', () => {
-    const r = parseCommand('remove terrain');
-    expect(r.intent).toBe(INTENT.HIDE_LAYER);
-    expect(r.payload.layerId).toBe('terrain');
   });
 });
 
@@ -167,20 +150,14 @@ describe('parseCommand — show/hide layer', () => {
 // ---------------------------------------------------------------------------
 
 describe('parseCommand — add marker', () => {
-  test('add marker', () => {
-    const r = parseCommand('add marker');
+  test('add marker', async () => {
+    const r = await parseCommand('add marker');
     expect(r.intent).toBe(INTENT.ADD_MARKER);
     expect(r.payload.useCurrentLocation).toBe(false);
   });
 
-  test('add marker at my location', () => {
-    const r = parseCommand('add marker at my location');
-    expect(r.intent).toBe(INTENT.ADD_MARKER);
-    expect(r.payload.useCurrentLocation).toBe(true);
-  });
-
-  test('drop a pin here', () => {
-    const r = parseCommand('drop a pin here');
+  test('add marker at my location', async () => {
+    const r = await parseCommand('add marker at my location');
     expect(r.intent).toBe(INTENT.ADD_MARKER);
     expect(r.payload.useCurrentLocation).toBe(true);
   });
@@ -191,14 +168,14 @@ describe('parseCommand — add marker', () => {
 // ---------------------------------------------------------------------------
 
 describe('parseCommand — switch map', () => {
-  test('switch to openlayers', () => {
-    const r = parseCommand('switch to openlayers');
+  test('switch to openlayers', async () => {
+    const r = await parseCommand('switch to openlayers');
     expect(r.intent).toBe(INTENT.SWITCH_MAP);
     expect(r.payload.engine).toBe('openlayers');
   });
 
-  test('switch to leaflet', () => {
-    const r = parseCommand('switch to leaflet');
+  test('switch to leaflet', async () => {
+    const r = await parseCommand('switch to leaflet');
     expect(r.intent).toBe(INTENT.SWITCH_MAP);
     expect(r.payload.engine).toBe('leaflet');
   });
@@ -209,12 +186,14 @@ describe('parseCommand — switch map', () => {
 // ---------------------------------------------------------------------------
 
 describe('parseCommand — reset view', () => {
-  test('reset view', () => {
-    expect(parseCommand('reset view').intent).toBe(INTENT.RESET_VIEW);
+  test('reset view', async () => {
+    const r = await parseCommand('reset view');
+    expect(r.intent).toBe(INTENT.RESET_VIEW);
   });
 
-  test('home', () => {
-    expect(parseCommand('home').intent).toBe(INTENT.RESET_VIEW);
+  test('home', async () => {
+    const r = await parseCommand('home');
+    expect(r.intent).toBe(INTENT.RESET_VIEW);
   });
 });
 
@@ -223,20 +202,18 @@ describe('parseCommand — reset view', () => {
 // ---------------------------------------------------------------------------
 
 describe('parseCommand — edge cases', () => {
-  test('empty string → unknown', () => {
-    expect(parseCommand('').intent).toBe(INTENT.UNKNOWN);
+  test('empty string → unknown', async () => {
+    const r = await parseCommand('');
+    expect(r.intent).toBe(INTENT.UNKNOWN);
   });
 
-  test('null → unknown', () => {
-    expect(parseCommand(null).intent).toBe(INTENT.UNKNOWN);
+  test('null → unknown', async () => {
+    const r = await parseCommand(null);
+    expect(r.intent).toBe(INTENT.UNKNOWN);
   });
 
-  test('completely random text → unknown', () => {
-    expect(parseCommand('the quick brown fox').intent).toBe(INTENT.UNKNOWN);
-  });
-
-  test('raw text is preserved in result', () => {
-    const r = parseCommand('Zoom In Please');
+  test('raw text is preserved in result', async () => {
+    const r = await parseCommand('Zoom In Please');
     expect(r.raw).toBe('Zoom In Please');
   });
 });

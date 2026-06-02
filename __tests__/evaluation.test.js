@@ -2,7 +2,7 @@
  * evaluation.test.js — unit tests for src/evaluation.js
  */
 
-import { EvaluationTracker } from '../src/evaluation.js';
+import { EvaluationTracker } from '../src/evaluation/EvaluationTracker.js';
 
 function makeTracker() {
   return new EvaluationTracker();

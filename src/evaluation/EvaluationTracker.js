@@ -9,6 +9,19 @@
  *   tracker.exportJSON();
  */
 
+/**
+ * @typedef {Object} CommandRecord
+ * @property {number} id
+ * @property {number} timestamp
+ * @property {string} raw
+ * @property {string} intent
+ * @property {any} payload
+ * @property {number} confidence
+ * @property {number} latency
+ * @property {boolean} userCorrected
+ * @property {string} correction
+ */
+
 export class EvaluationTracker {
   constructor() {
     /** @type {CommandRecord[]} */
@@ -60,6 +73,19 @@ export class EvaluationTracker {
   }
 
   /**
+   * @typedef {Object} Stats
+   * @property {number} total
+   * @property {number} recognized
+   * @property {number} unknown
+   * @property {number} corrected
+   * @property {number|null} accuracy
+   * @property {number|null} avgConfidence
+   * @property {number|null} avgLatency
+   * @property {number} sessionDurationMs
+   * @property {Record<string, number>} intentBreakdown
+   */
+
+  /**
    * Compute summary statistics.
    * @returns {Stats}
    */
@@ -74,7 +100,7 @@ export class EvaluationTracker {
         accuracy: null,
         avgConfidence: null,
         avgLatency: null,
-        intentBreakdown: {},
+        intentBreakdown: /** @type {Record<string, number>} */ ({}),
         sessionDurationMs: Date.now() - this._startTime,
       };
     }
@@ -93,6 +119,7 @@ export class EvaluationTracker {
     const accuracy = total > 0 ? (recognized - corrected) / total : null;
 
     // Intent breakdown
+    /** @type {Record<string, number>} */
     const intentBreakdown = {};
     for (const r of this.records) {
       intentBreakdown[r.intent] = (intentBreakdown[r.intent] || 0) + 1;
