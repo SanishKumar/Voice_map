@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>VoiceGIS — Intelligent Voice Map</title>
+
+  <!-- Favicon -->
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🗺️</text></svg>" />
+
+  <!-- PWA Manifest -->
+  <link rel="manifest" href="/assets/manifest-BUmTv7pC.json" />
+
+  <!-- Google Fonts: Inter & Outfit -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=Outfit:wght@400;600;800&display=swap" rel="stylesheet">
+
+  <!-- Leaflet -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+
+  <!-- OpenLayers -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ol@v9.2.4/ol.css" />
+
+  <!-- App styles -->
+  <script type="module" crossorigin src="/assets/index-DCCt5c90.js"></script>
+  <link rel="stylesheet" crossorigin href="/assets/index-B0y2afHa.css">
+</head>
+<body>
+
+<div id="app">
+
+  <!-- ── Offline Banner ───────────────────────────────────── -->
+  <div id="offline-banner" class="offline-banner">
+    ⚠️ You are offline. Some online features (geocoding, online maps) may be unavailable.
+  </div>
+
+  <!-- ── Fullscreen Map Area ────────────────────────────── -->
+  <div id="map-area">
+    <div id="leaflet-map" class="map-container active"></div>
+    <div id="ol-map" class="map-container"></div>
+    <div id="map-overlay" class="glass-panel">
+      <div class="spinner"></div>
+      <span id="overlay-msg">Switching map engine…</span>
+    </div>
+  </div>
+
+  <!-- ── Top Navigation Bar (Glassmorphism) ─────────────── -->
+  <header class="glass-header">
+    <div class="logo">
+      <div class="logo-icon">🗺️</div>
+      Voice<span>GIS</span>
+    </div>
+    
+    <div class="header-controls">
+      <!-- Status Indicators -->
+      <div class="status-pill" id="engine-status" title="Current Engine">
+        <span class="status-dot online"></span>
+        <span class="status-text">Web Speech</span>
+      </div>
+      
+      <div class="status-pill" id="map-status" title="Current Map">
+        <span class="status-dot map-dot"></span>
+        <span class="status-text">Leaflet</span>
+      </div>
+
+      <button id="settings-toggle" class="icon-btn" title="Settings">
+        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+      </button>
+    </div>
+  </header>
+
+  <!-- ── Map Controls (Floating Right) ──────────────────── -->
+  <div class="floating-controls right-controls">
+    <button class="glass-btn icon-btn" id="btn-zoom-in" title="Zoom In">
+      <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+    </button>
+    <button class="glass-btn icon-btn" id="btn-zoom-out" title="Zoom Out">
+      <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+    </button>
+    <div class="divider"></div>
+    <button class="glass-btn icon-btn" id="btn-reset" title="Reset View">
+      <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg>
+    </button>
+    <button class="glass-btn icon-btn" id="btn-locate" title="My Location">
+      <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="3 11 22 2 13 21 11 13 3 11"></polygon></svg>
+    </button>
+  </div>
+
+  <!-- ── Command Palette (Bottom Center, Glassmorphism) ─── -->
+  <div class="command-palette glass-panel">
+    
+    <!-- Audio Visualizer Canvas -->
+    <div class="visualizer-container">
+      <canvas id="waveform-canvas" width="400" height="60"></canvas>
+    </div>
+    
+    <!-- Transcript & Status -->
+    <div class="transcript-area">
+      <div id="transcript" class="placeholder">Say a command like "zoom in" or "go to Paris"</div>
+    </div>
+    
+  </div>
+
+  <!-- ── Floating Mic Button ────────────────────────────── -->
+  <button id="voice-btn" class="mic-fab pulse-idle" title="Start Listening">
+    <svg class="mic-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>
+    <svg class="loader-icon" style="display:none" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="2" x2="12" y2="6"></line><line x1="12" y1="18" x2="12" y2="22"></line><line x1="4.93" y1="4.93" x2="7.76" y2="7.76"></line><line x1="16.24" y1="16.24" x2="19.07" y2="19.07"></line><line x1="2" y1="12" x2="6" y2="12"></line><line x1="18" y1="12" x2="22" y2="12"></line><line x1="4.93" y1="19.07" x2="7.76" y2="16.24"></line><line x1="16.24" y1="7.76" x2="19.07" y2="4.93"></line></svg>
+  </button>
+
+  <!-- ── Settings Drawer (Slide out from left) ──────────── -->
+  <div id="settings-drawer" class="drawer glass-panel">
+    <div class="drawer-header">
+      <h2>Settings & Data</h2>
+      <button id="drawer-close" class="icon-btn">&times;</button>
+    </div>
+    
+    <div class="drawer-content">
+      
+      <div class="settings-section">
+        <h3>Engines</h3>
+        
+        <div class="form-group">
+          <label>Voice Recognition</label>
+          <div class="custom-select">
+            <select id="engine-select">
+              <option value="auto" selected>Auto (Smart Hybrid)</option>
+              <option value="webspeech">Online Cloud (Web Speech API)</option>
+              <option value="whisper">Offline Advanced (Whisper AI)</option>
+              <option value="tfjs">Offline Command Mode (TF.js)</option>
+              <option value="server">Private Server (API)</option>
+            </select>
+          </div>
+        </div>
+        
+        <!-- Whisper progress bar (hidden unless loading whisper) -->
+        <div id="whisper-progress-container" class="progress-container" style="display:none">
+          <div class="progress-label">
+            <span id="whisper-status-text">Loading Model...</span>
+            <span id="whisper-status-pct">0%</span>
+          </div>
+          <div class="progress-track">
+            <div id="whisper-progress-bar" class="progress-bar"></div>
+          </div>
+        </div>
+
+        <div class="form-group mt-3">
+          <label>Map Library</label>
+          <div class="custom-select">
+            <select id="map-select">
+              <option value="leaflet">Leaflet</option>
+              <option value="openlayers">OpenLayers</option>
+            </select>
+          </div>
+        </div>
+      </div>
+      
+      <div class="settings-section">
+        <h3>Map Layers</h3>
+        <div class="layer-list" id="layer-toggles">
+          <label class="toggle-row">
+            <span class="toggle-label">🗺️ OpenStreetMap</span>
+            <div class="toggle-switch">
+              <input type="checkbox" checked data-layer="osm">
+              <div class="toggle-slider"></div>
+            </div>
+          </label>
+          
+          <label class="toggle-row">
+            <span class="toggle-label">🛰️ NASA GIBS Satellite</span>
+            <div class="toggle-switch">
+              <input type="checkbox" data-layer="nasa">
+              <div class="toggle-slider"></div>
+            </div>
+          </label>
+          
+          <label class="toggle-row">
+            <span class="toggle-label">🌿 Copernicus Land</span>
+            <div class="toggle-switch">
+              <input type="checkbox" data-layer="copernicus">
+              <div class="toggle-slider"></div>
+            </div>
+          </label>
+          
+          <label class="toggle-row">
+            <span class="toggle-label">🏔️ OpenTopoMap</span>
+            <div class="toggle-switch">
+              <input type="checkbox" data-layer="terrain">
+              <div class="toggle-slider"></div>
+            </div>
+          </label>
+        </div>
+      </div>
+      
+      <div class="settings-section">
+        <h3>Statistics</h3>
+        <div class="stats-grid">
+          <div class="stat-card">
+            <div class="stat-value" id="stat-total">0</div>
+            <div class="stat-label">Commands</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value text-success" id="stat-recognized">0</div>
+            <div class="stat-label">Recognized</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value text-danger" id="stat-unknown">0</div>
+            <div class="stat-label">Unknown</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value text-primary" id="stat-accuracy">—</div>
+            <div class="stat-label">Accuracy</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value text-info" id="stat-latency">—</div>
+            <div class="stat-label">Avg Latency</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value" id="stat-session">0s</div>
+            <div class="stat-label">Session Time</div>
+          </div>
+        </div>
+        
+        <div class="action-buttons mt-3">
+          <button class="btn btn-outline" id="export-json">Export JSON</button>
+          <button class="btn btn-outline" id="export-csv">Export CSV</button>
+          <button class="btn btn-danger" id="reset-stats">Reset</button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+  
+  <div class="drawer-backdrop" id="drawer-backdrop"></div>
+
+  <!-- ── Status Bar (Bottom Left) ────────────────────────── -->
+  <div class="bottom-status glass-panel">
+    <div class="coords" id="status-coords">Lat/Lng: —</div>
+    <div class="zoom" id="status-zoom">Zoom: —</div>
+  </div>
+
+</div><!-- #app -->
+
+<!-- ── Notifications ─────────────────────────────────────── -->
+<div id="notif-container"></div>
+
+<!-- ── External libraries (CDN) ──────────────────────────── -->
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/ol@v9.2.4/dist/ol.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.17.0/dist/tf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/speech-commands@0.5.4/dist/speech-commands.min.js"></script>
+
+<!-- ── Application entry point (ES module) ───────────────── -->
+
+</body>
+</html>
