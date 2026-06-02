@@ -1,11 +1,11 @@
 <div align="center">
-  <img src="https://raw.githubusercontent.com/sanishkumar/VoiceGIS/main/demo/favicon.svg" width="120" height="120" alt="VoiceGIS Logo" />
+  <img src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0naHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmcnIHZpZXdCb3g9JzAgMCAxMDAgMTAwJz48dGV4dCB5PScuOWVtJyBmb250LXNpemU9JzkwJz7wn5+6PC90ZXh0Pjwvc3ZnPg==" width="120" height="120" alt="VoiceGIS Logo" />
   <h1>VoiceGIS</h1>
   <p><strong>A Real-World Hybrid Voice Interface for Web GIS</strong></p>
   
   <p>
     <a href="https://www.npmjs.com/package/voicegis"><img src="https://img.shields.io/npm/v/voicegis" alt="NPM Version" /></a>
-    <img src="https://img.shields.io/bundlephobia/minzip/voicegis" alt="Bundle Size" />
+    <img src="https://img.shields.io/npm/unpacked-size/voicegis" alt="Package Size" />
     <img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License" />
   </p>
 </div>
