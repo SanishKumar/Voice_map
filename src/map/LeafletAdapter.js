@@ -43,6 +43,12 @@ export class LeafletAdapter {
       center: DEFAULT_CENTER,
       zoom: DEFAULT_ZOOM,
       zoomControl: true,
+      minZoom: 2,
+      maxBounds: [
+        [-90, -180],
+        [90, 180]
+      ],
+      maxBoundsViscosity: 1.0,
     });
   }
 

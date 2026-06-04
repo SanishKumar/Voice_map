@@ -37,6 +37,8 @@ export class OpenLayersAdapter {
       view: new ol.View({
         center: ol.proj.fromLonLat([DEFAULT_CENTER[1], DEFAULT_CENTER[0]]),
         zoom: DEFAULT_ZOOM,
+        minZoom: 2,
+        extent: ol.proj.get('EPSG:3857').getExtent(),
       }),
       controls: ol.control.defaults.defaults(),
       layers: [],
