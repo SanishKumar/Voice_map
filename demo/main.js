@@ -464,7 +464,9 @@ document.addEventListener('keydown', (e) => {
 document.getElementById('btn-zoom-in').addEventListener('click', () => mapController?.zoomIn());
 document.getElementById('btn-zoom-out').addEventListener('click', () => mapController?.zoomOut());
 document.getElementById('btn-reset').addEventListener('click', () => mapController?.resetView());
-document.getElementById('btn-locate').addEventListener('click', () => mapController?.addMarkerAtCurrentLocation());
+document.getElementById('btn-locate').addEventListener('click', () => {
+  mapController?.addMarkerAtCurrentLocation().catch(err => showNotif(`⚠ ${err.message}`, 'error'));
+});
 
 // Engine & Map Selects
 engineSelect.addEventListener('change', () => {
