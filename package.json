@@ -1,6 +1,6 @@
 {
   "name": "voicegis",
-  "version": "2.0.0-alpha.4",
+  "version": "2.0.0-alpha.5",
   "description": "Voice-Enabled Geospatial Map Web Application — offline-first voice command interface for Leaflet and OpenLayers",
   "main": "dist/voicegis.umd.js",
   "module": "dist/voicegis.es.js",
