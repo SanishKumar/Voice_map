@@ -1,0 +1,21 @@
+[
+  { "text": "zoom in please", "intent": "zoom_in" },
+  { "text": "magnify the map", "intent": "zoom_in" },
+  { "text": "zoom out", "intent": "zoom_out" },
+  { "text": "shrink the map", "intent": "zoom_out" },
+  { "text": "take me to paris", "intent": "go_to", "payload": { "place": "paris" } },
+  { "text": "zoom to new york", "intent": "go_to", "payload": { "place": "new york" } },
+  { "text": "show satellite layer", "intent": "show_layer", "payload": { "layerId": "nasa" } },
+  { "text": "turn on osm", "intent": "show_layer", "payload": { "layerId": "osm" } },
+  { "text": "hide the satellite layer", "intent": "hide_layer", "payload": { "layerId": "nasa" } },
+  { "text": "add a marker", "intent": "add_marker", "payload": { "useCurrentLocation": false } },
+  { "text": "add a marker here", "intent": "add_marker", "payload": { "useCurrentLocation": true } },
+  { "text": "drop a pin at my current location", "intent": "add_marker", "payload": { "useCurrentLocation": true } },
+  { "text": "reset the view", "intent": "reset_view" },
+  { "text": "go home", "intent": "reset_view" },
+  { "text": "switch to openlayers map", "intent": "switch_map", "payload": { "engine": "openlayers" } },
+  { "text": "use leaflet", "intent": "switch_map", "payload": { "engine": "leaflet" } },
+  { "text": "bla bla random text", "intent": "unknown" },
+  { "text": "zoon in", "intent": "zoom_in" },
+  { "text": "show sattelite", "intent": "show_layer", "payload": { "layerId": "nasa" } }
+]

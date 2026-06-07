@@ -92,6 +92,71 @@ await app.initSpeech();
 app.start();
 ```
 
+## 🔌 Public API Reference
+
+The core of the library is the `VoiceGIS` orchestrator class. 
+
+### `new VoiceGIS(options)`
+
+| Option | Type | Default | Description |
+| --- | --- | --- | --- |
+| `mapEngine` | `'leaflet'` \| `'openlayers'` | `'leaflet'` | The underlying map library you are using. |
+| `mapContainerId` | `string` | `undefined` | DOM ID of the map container (if provided, map is auto-initialized). |
+| `speechEngine` | `'auto'` \| `'webspeech'` \| `'whisper'` \| `'tfjs'` | `'auto'` | The STT engine strategy to use. |
+| `autoExecute` | `boolean` | `true` | Whether to automatically run parsed intents on the map controller. |
+| `enableGeocoding`| `boolean` | `true` | Whether to use Nominatim for resolving unknown place names offline. |
+| `onCommandParsed`| `function` | `undefined` | Callback `(result, rawText)` triggered when a voice command is understood. |
+| `onStateChange` | `function` | `undefined` | Callback `(state)` where state is `'listening'`, `'idle'`, or `'error'`. |
+| `onEngineSwitched`| `function` | `undefined` | Callback `(engineType)` triggered when the hybrid router switches engines. |
+
+### Methods
+
+- `initSpeech()`: Instantiates and warms up the selected speech engine. Returns a Promise.
+- `start()`: Begins listening for voice commands.
+- `stop()`: Stops listening.
+- `registerCommand(intentName, pattern, action)`: Register custom application logic (see Recipes below).
+
+## 🍳 Recipes: Custom Commands
+
+While `voicegis` comes with built-in intents (zoom, pan, layers, markers), its real power lies in adding domain-specific commands for your application.
+
+```javascript
+import { VoiceGIS } from 'voicegis';
+
+const app = new VoiceGIS({ mapContainerId: 'map' });
+
+// 1. Register a custom regex command
+app.registerCommand(
+  'NAVIGATE_TO_ROOM', 
+  /(?:take me to|navigate to) (conference room [a-c]|the cafeteria)/i, 
+  (mapController, match) => {
+    const destination = match[1];
+    console.log(`Routing user to: ${destination}`);
+    // Hook into your custom routing backend here (e.g. OSRM, AR.js)
+  }
+);
+
+await app.initSpeech();
+app.start();
+```
+
+## ⚡ Performance & Bundle Size
+
+`VoiceGIS` implements a hybrid engine strategy. Because local on-device AI requires large weights, keep the following in mind:
+
+- **WebSpeech Engine** adds virtually 0 bytes to your bundle, relying on the browser's native C++ implementation.
+- **Whisper & TF.js** engines will dynamically load their weights (~40MB for Whisper `tiny.en`, ~5MB for TF.js) into the browser cache only when instantiated. 
+- If you are building a strict web-app that will *never* go offline, you can configure your bundler (e.g. Vite/Webpack) to tree-shake `@huggingface/transformers` to aggressively reduce your vendor chunk size.
+
+## 🧪 Evaluation Harness
+
+We ship an offline evaluation harness to measure parser accuracy and prevent regressions.
+
+```bash
+# Run the benchmark suite against src/evaluation/benchmarks.json
+npm run evaluate
+```
+
 ## 📖 Architecture & Advanced Usage
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for a deep dive into the internal modules, state management, and deployment profiles.

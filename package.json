@@ -30,6 +30,7 @@
     "build:types": "tsc --project jsconfig.json || exit 0",
     "preview": "vite preview",
     "test": "node --experimental-vm-modules ./node_modules/jest/bin/jest.js",
+    "evaluate": "node scripts/evaluate.js",
     "lint": "eslint src/ demo/"
   },
   "jest": {
