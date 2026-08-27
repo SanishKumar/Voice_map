@@ -18,6 +18,7 @@
 
 import { OPERATION } from '../core/constants.js';
 import { AdapterEvaluationError } from './predicate.js';
+import { aliasesFor, claimAliases, fingerprint } from './catalogUtils.js';
 
 /** Conformance classes this module looks for. */
 export const CONFORMANCE = Object.freeze({
@@ -31,17 +32,6 @@ export const CONFORMANCE = Object.freeze({
   BASIC_SPATIAL: 'http://www.opengis.net/spec/cql2/1.0/conf/basic-spatial-functions',
   SPATIAL_FUNCTIONS: 'http://www.opengis.net/spec/cql2/1.0/conf/spatial-functions',
 });
-
-/** Small stable hash so a schema change invalidates previously compiled plans. */
-function fingerprint(value) {
-  let hash = 0x811c9dc5;
-  const text = JSON.stringify(value);
-  for (let i = 0; i < text.length; i += 1) {
-    hash ^= text.charCodeAt(i);
-    hash = Math.imul(hash, 0x01000193) >>> 0;
-  }
-  return hash.toString(36);
-}
 
 /**
  * Map an OGC queryable to a catalog field type.
@@ -63,15 +53,6 @@ function fieldTypeFor(queryable) {
 
 const isGeometry = (queryable) => typeof queryable?.format === 'string'
   && queryable.format.startsWith('geometry');
-
-/** "dutch_windmills" should also answer to "dutch windmills". */
-function aliasesFor(id, title) {
-  const candidates = new Set();
-  const spaced = String(id).replace(/[_-]+/g, ' ').trim();
-  if (spaced && spaced !== id) candidates.add(spaced);
-  if (title && title !== id) candidates.add(String(title).trim());
-  return [...candidates].filter(Boolean);
-}
 
 async function getJson(fetchImpl, url, signal, what) {
   const response = await fetchImpl(url, { signal, headers: { accept: 'application/json' } });
@@ -245,12 +226,7 @@ export async function catalogFromOgcService(baseUrl, options = {}) {
   const summary = [];
 
   for (const { entry, fields, geometryProperty: geom } of described) {
-    const aliases = aliasesFor(entry.id, entry.title).filter((alias) => {
-      const key = alias.toLowerCase();
-      if (claimed.has(key)) return false;
-      claimed.add(key);
-      return true;
-    });
+    const aliases = claimAliases(claimed, aliasesFor(entry.id, entry.title));
 
     layers.push({
       id: entry.id,
