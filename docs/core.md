@@ -236,6 +236,9 @@ Use interim transcripts only for UI feedback. Compile a final transcript to avoi
 - Give every layer and field a stable id.
 - Declare only operations that the layer actually supports.
 - Start with the default view/query policy and add permissions deliberately.
+- Set `minConfidence` when a wrong action costs more than a second question.
+  Speech input is the usual case: a floor around 0.9 turns a fuzzy layer match
+  into a clarification instead of an action.
 - Require confirmation for exports, edits, analysis, and custom high-impact work.
 - Translate the predicate AST using parameterized SDK/backend APIs.
 - Revalidate catalog ids and policy on the server; keep strict catalog-version checks enabled.

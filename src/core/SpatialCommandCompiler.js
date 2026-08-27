@@ -261,6 +261,21 @@ function legacyOperation(command) {
 }
 
 /**
+ * Validate the confidence floor.
+ *
+ * The default of 0 accepts whatever the resolvers produced, which is the
+ * behaviour every existing caller already relies on. Raising it is opt-in.
+ */
+function normalizeMinConfidence(value) {
+  if (value === undefined || value === null) return 0;
+  const threshold = Number(value);
+  if (!Number.isFinite(threshold) || threshold < 0 || threshold > 1) {
+    throw new TypeError('minConfidence must be a number between 0 and 1.');
+  }
+  return threshold;
+}
+
+/**
  * Compile natural-language GIS requests into inspectable, typed operation plans.
  */
 export class SpatialCommandCompiler {
@@ -276,6 +291,7 @@ export class SpatialCommandCompiler {
     this.geocoder = options.geocoder;
     this.resolvers = [...(options.resolvers || [])];
     this.clock = options.clock || Date.now;
+    this.minConfidence = normalizeMinConfidence(options.minConfidence);
   }
 
   /** @param {import('./types.js').CommandResolver} resolver */
@@ -311,6 +327,24 @@ export class SpatialCommandCompiler {
           operations.push(this._decorateOperation(operation, segment, operations.length, issues));
         }
         issues.push(...(result.issues || []));
+      }
+    }
+
+    // A resolver that only half-recognised something still returns an answer,
+    // just a low-scoring one. Below the floor that guess is surfaced as a
+    // question rather than executed, which the existing `input` severity
+    // already turns into a needs_input plan.
+    if (this.minConfidence > 0) {
+      for (const operation of operations) {
+        if (operation.confidence >= this.minConfidence) continue;
+        issues.push({
+          code: 'low_confidence',
+          severity: 'input',
+          message: `"${operation.source.text}" was understood with confidence `
+            + `${operation.confidence.toFixed(2)}, below the required `
+            + `${this.minConfidence.toFixed(2)}. Rephrase it or confirm what was meant.`,
+          operationId: operation.id,
+        });
       }
     }
 
