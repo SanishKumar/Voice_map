@@ -149,6 +149,20 @@ if (plan.status === 'needs_input') {
 }
 ```
 
+Every operation carries a `confidence` score. Set `minConfidence` to make it
+decide something: anything below the floor becomes a `low_confidence` input
+issue and the plan comes back `needs_input` rather than `ready`. Because
+execution is atomic, one uncertain operation holds back its whole plan.
+
+```js
+const gis = new VoiceGISCore({ catalog, minConfidence: 0.9 });
+
+// "show parcel" fuzzy-matches the "parcels" layer at 0.86, so instead of
+// acting on a guess the plan asks.
+```
+
+The default is `0`, which accepts whatever the resolvers produced.
+
 Safe defaults grant only `view` and `query`. Analysis and export must be explicitly authorized:
 
 ```js
@@ -270,6 +284,8 @@ const adapter = createOgcApiFeaturesAdapter({
 Both refuse rather than guess: unknown units, unsupported relations, and unresolvable references throw so the executor records a failed operation instead of putting a wrong answer on a map. The OGC adapter does not claim `analysis.buffer`, because OGC API - Features has no standard geometry-processing endpoint — so a buffer command fails preflight rather than halfway through.
 
 `catalogFromOgcService(url)` builds the whole catalog from a live service — layers from `/collections`, typed fields from `/collections/{id}/queryables` — so pointing at an OGC endpoint takes three lines instead of a hand-written catalog. Crucially, it grants query capabilities only when the service advertises Part 3 filtering: a service that accepts a filter and silently returns everything gets no filter capability at all, and says why. [Details](docs/adapters.md#capabilities-follow-conformance-and-this-matters).
+
+`catalogFromGeoJSON(data)` does the same for GeoJSON you already have, so evaluating the library needs a file rather than a live endpoint. It is timid on purpose: a property whose values disagree across features is declared with no type instead of the type of whichever feature came first, a property holding objects or arrays is left out entirely because the predicate engine cannot compare it, and a layer whose features carry no geometry is not offered proximity selection or buffering. Everything it declined to infer comes back in `warnings`. [Details](docs/adapters.md#deriving-the-catalog-from-geojson).
 
 The OGC adapter needs a service conforming to OGC API - Features Part 3 (Filtering) and CQL2-Text; it pages by following the service's own `rel="next"` link and reports `truncated` rather than pretending a page-bounded result is complete. Proximity is expressed as intersection with a buffer polygon, which is a [bounded approximation, not an exact distance test](docs/adapters.md#proximity-queries-are-bounded-approximations).
 

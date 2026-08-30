@@ -5,6 +5,7 @@ import {
   PLAN_STATUS,
   SpatialCatalog,
   SpatialCommandCompiler,
+  VoiceGISCore,
   splitSpatialCommand,
 } from '../src/core/index.js';
 
@@ -359,5 +360,75 @@ describe('silent wrong answers', () => {
 
     expect(plan.status).toBe(PLAN_STATUS.READY);
     expect(plan.operations[0].args.predicate).toMatchObject({ value: 2, unit: 'acre' });
+  });
+});
+
+/**
+ * Every operation has always carried a confidence score, but nothing acted on
+ * it: a half-recognised layer name still compiled to a ready plan. The floor
+ * turns that score into a question instead of an execution.
+ */
+describe('confidence floor', () => {
+  test('is off by default, so a fuzzy match still compiles', async () => {
+    const plan = await createCompiler().compile('show parcel');
+
+    expect(plan.operations[0].confidence).toBeLessThan(0.9);
+    expect(plan.status).toBe(PLAN_STATUS.READY);
+  });
+
+  test('turns a match below the floor into an input issue', async () => {
+    const plan = await createCompiler({ minConfidence: 0.9 }).compile('show parcel');
+
+    expect(plan.status).toBe(PLAN_STATUS.NEEDS_INPUT);
+    const issue = plan.issues.find((candidate) => candidate.code === 'low_confidence');
+    expect(issue.severity).toBe('input');
+    expect(issue.operationId).toBe(plan.operations[0].id);
+    expect(issue.message).toContain('show parcel');
+    expect(issue.message).toContain('0.86');
+    expect(issue.message).toContain('0.90');
+  });
+
+  test('leaves a confident match alone', async () => {
+    const plan = await createCompiler({ minConfidence: 0.9 }).compile('show parcels');
+
+    expect(plan.status).toBe(PLAN_STATUS.READY);
+    expect(plan.issues).toEqual([]);
+  });
+
+  test('one uncertain operation holds back the whole plan', async () => {
+    const plan = await createCompiler({ minConfidence: 0.98 })
+      .compile('show parcels and zoom in');
+
+    // "show parcels" scores 1.0 and would have run on its own; execution is
+    // all-or-nothing, so the uncertain half stops both.
+    expect(plan.operations).toHaveLength(2);
+    expect(plan.status).toBe(PLAN_STATUS.NEEDS_INPUT);
+    expect(plan.issues.filter((issue) => issue.code === 'low_confidence')).toHaveLength(1);
+  });
+
+  test('a blocked plan stays blocked rather than being downgraded', async () => {
+    const compiler = createCompiler({
+      minConfidence: 0.9,
+      policy: new CommandPolicy({ deny: [OPERATION.LAYER_VISIBILITY] }),
+    });
+    const plan = await compiler.compile('show parcel');
+
+    expect(plan.status).toBe(PLAN_STATUS.BLOCKED);
+  });
+
+  test('rejects a floor that is not a fraction', async () => {
+    for (const value of [1.5, -0.1, 'high', Number.NaN]) {
+      expect(() => createCompiler({ minConfidence: value })).toThrow(TypeError);
+    }
+    expect(() => createCompiler({ minConfidence: 0 })).not.toThrow();
+    expect(() => createCompiler({ minConfidence: 1 })).not.toThrow();
+  });
+
+  test('reaches the compiler through VoiceGISCore', async () => {
+    const core = new VoiceGISCore({ catalog: catalogDefinition, minConfidence: 0.9 });
+    const plan = await core.compile('show parcel');
+
+    expect(plan.status).toBe(PLAN_STATUS.NEEDS_INPUT);
+    expect(plan.issues.some((issue) => issue.code === 'low_confidence')).toBe(true);
   });
 });

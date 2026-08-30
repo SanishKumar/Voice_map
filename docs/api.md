@@ -18,6 +18,7 @@ const gis = createVoiceGISCore({
   enableGeocoding: false,
   geocoder,
   resolvers,
+  minConfidence: 0,
   clock,
 });
 ```
@@ -30,6 +31,7 @@ const gis = createVoiceGISCore({
 | `enableGeocoding` | `boolean` | `false` | Allows the legacy navigation fallback to use the supplied geocoder |
 | `geocoder` | `object` | Legacy geocoder | Object with an async `geocode(place)` method |
 | `resolvers` | `Function[]` | `[]` | Domain-specific command resolvers, evaluated before built-ins |
+| `minConfidence` | `number` | `0` | Confidence floor from 0 to 1; operations scoring below it make the plan `needs_input` |
 | `strictCatalogVersion` | `boolean` | `true` | Rejects execution when the plan and trusted catalog versions differ |
 | `clock` | `Function` | `Date.now` | Time source used by plans and receipts |
 
@@ -133,7 +135,9 @@ The default policy grants `view` and `query`. `CommandPolicy.permissive()` grant
 
 ## `SpatialCommandCompiler`
 
-`new SpatialCommandCompiler(options)` accepts the same catalog, policy, geocoding, resolver, and clock options as the facade.
+`new SpatialCommandCompiler(options)` accepts the same catalog, policy, geocoding, resolver, confidence, and clock options as the facade.
+
+With `minConfidence` above 0, every operation scoring below the floor adds a `low_confidence` issue at `input` severity, carrying the `operationId` it refers to. Because execution is all-or-nothing, one such operation makes the whole plan `needs_input`. A value outside 0 to 1 throws a `TypeError`.
 
 `compiler.compile(input)` returns:
 

@@ -79,6 +79,94 @@ adapter.setLayerData('incidents', await fetchLatest());
 // An active filter is re-evaluated; selected ids that vanished are dropped.
 ```
 
+### Deriving the catalog from GeoJSON
+
+Writing a catalog by hand is the slowest part of adopting this library, and a
+FeatureCollection already carries most of the answer. `catalogFromGeoJSON`
+reads it:
+
+```js
+import { catalogFromGeoJSON, createGeoJSONAdapter } from 'voicegis/adapters';
+
+const { catalog, layers, warnings } = catalogFromGeoJSON({
+  parcels: parcelFeatureCollection,
+  hydrants: hydrantFeatureCollection,
+});
+
+for (const warning of warnings) console.warn(warning);
+
+const gis = createVoiceGISCore({
+  catalog,
+  adapter: createGeoJSONAdapter({ catalog, layers: { parcels, hydrants } }),
+});
+```
+
+A bare collection works too, and takes its layer id from `options.layerId`
+(default `features`). `include`, `exclude`, `labels`, `sampleSize`, and
+`version` are the remaining options.
+
+Field names become aliases the way collection ids do, so `pop_max` also answers
+to "pop max". An alias another layer already claims is dropped rather than
+allowed to make `SpatialCatalog` throw on ambiguity.
+
+#### What it refuses to infer
+
+The point of a derived catalog is that it describes the data as it actually
+is. Every rule below exists because the alternative is a field that compiles
+cleanly and then matches nothing — the same class of failure as a service that
+accepts a filter and ignores it.
+
+| Observed | Declared | Why |
+| --- | --- | --- |
+| Consistent strings | `string` | — |
+| Consistent finite numbers | `number` | — |
+| Consistent booleans | `boolean` | — |
+| ISO-8601 dates | `date` | Recognised by shape, then confirmed by `Date.parse` |
+| Dates mixed with free text | `string` | A date is a specialisation of a string, so the wider type is still honest |
+| Numbers mixed with strings | *no type* | Declaring either would be a coin flip; the compiler treats an undeclared field conservatively |
+| Objects, arrays, `NaN`, `Infinity` | *field omitted* | The predicate engine cannot compare these, so exposing them would offer a query that always fails |
+| `null` | ignored | Absence is not evidence of a type |
+
+Numeric-looking strings are left as strings. `"42"` is a string in the data,
+and coercing it would make `pop > 40` behave differently from what the file
+says.
+
+#### Capabilities follow the geometry present
+
+A layer whose features carry no geometry is not offered
+`query.spatial_select` or `analysis.buffer`. Both would run, match nothing, and
+report an empty result that looks like a real answer. Attribute operations are
+still offered on such a layer, so a non-spatial table is useful rather than
+excluded.
+
+Narrowing requires evidence. An **empty** layer keeps its spatial capabilities,
+because nothing was inspected either way — otherwise declaring a layer now and
+calling `setLayerData` when a fetch lands would leave it permanently unable to
+answer a proximity query.
+
+#### The catalog always constructs
+
+`SpatialCatalog` resolves names case-insensitively and throws when two things
+answer to one name. Source data does not always cooperate: a shapefile
+converted to GeoJSON routinely carries both `NAME` and `name`. Since a derived
+catalog is not something the caller can hand-edit, the builder drops the later
+of any two names colliding case-insensitively — layers and fields alike — and
+reports it:
+
+```
+Property "name" on layer "roads" is another spelling of "NAME" and was
+skipped; field names resolve case-insensitively.
+```
+
+The dropped one was unreachable anyway: a speaker asking for "name" could
+never have specified which of the two they meant. Blank layer names and
+`properties` that is an array rather than an object are skipped on the same
+grounds.
+
+Everything the builder declined to infer is reported in `warnings`, and
+`layers` gives per-layer `fieldCount`, `featureCount`, and `geometryCount` so
+an unexpected result is traceable to what was in the file.
+
 ### Deliberate limits
 
 `analysis.buffer` handles point geometry only. Offsetting lines and polygons is

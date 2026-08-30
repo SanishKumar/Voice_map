@@ -234,6 +234,8 @@ export const CORE_SCHEMA_VERSION = '1.0';
  * @property {{geocode:(place:string) => Promise<*>}} [geocoder]
  * @property {CommandResolver[]} [resolvers]
  * @property {() => number} [clock]
+ * @property {number} [minConfidence] Operations scoring below this become
+ *   `needs_input` instead of executing. 0 to 1; defaults to 0 (no floor).
  */
 
 /**
