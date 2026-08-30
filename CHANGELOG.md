@@ -5,7 +5,7 @@ All notable changes to `voicegis` are recorded here. This project follows
 
 Versions before 2.2.0 were prereleases; see the git history for their details.
 
-## [2.4.0] — unreleased
+## [2.4.0] — 2026-08-30
 
 ### Added
 
@@ -108,7 +108,7 @@ by this release.
 - The stacked mobile map is sized from measured chrome rather than a viewport
   fraction, which had passed locally and failed on CI's fonts.
 
-[2.4.0]: https://github.com/SanishKumar/VoiceGIS/compare/v2.3.0...HEAD
+[2.4.0]: https://github.com/SanishKumar/VoiceGIS/compare/v2.3.0...v2.4.0
 [2.3.0]: https://github.com/SanishKumar/VoiceGIS/compare/v2.2.1...v2.3.0
 [2.2.1]: https://github.com/SanishKumar/VoiceGIS/compare/v2.2.0...v2.2.1
 [2.2.0]: https://github.com/SanishKumar/VoiceGIS/releases/tag/v2.2.0
