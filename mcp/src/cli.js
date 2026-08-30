@@ -23,10 +23,12 @@ Options:
   --allow <perms>       Comma-separated permissions to grant.
                         Default: ${DEFAULT_PERMISSIONS.join(',')}
                         Available: view, query, analysis, export
-  --include <ids>       Only expose these collection ids.
-  --exclude <ids>       Skip these collection ids.
+  --include <ids>       Only expose these layer ids.
+  --exclude <ids>       Skip these layer ids.
   --limit <n>           Page size requested from the service. Default 500.
+                        --service only.
   --max-pages <n>       Safety bound on pagination. Default 20.
+                        --service only.
   --help                Show this message.
 
 Examples:
@@ -34,7 +36,7 @@ Examples:
   voicegis-mcp --file ./cities.geojson --file ./rivers.geojson
 
 The agent gets exactly the permissions granted here. Requests naming anything
-outside the service's own catalog are refused rather than guessed at.
+outside the catalog derived from the data are refused rather than guessed at.
 `;
 
 const REPEATABLE = new Set(['file']);
