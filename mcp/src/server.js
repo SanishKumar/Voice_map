@@ -19,7 +19,9 @@ import {
   createVoiceGISCore,
 } from 'voicegis/core';
 import {
+  catalogFromGeoJSON,
   catalogFromOgcService,
+  createGeoJSONAdapter,
   createOgcApiFeaturesAdapter,
 } from 'voicegis/adapters';
 
@@ -60,12 +62,55 @@ function summarizeOperation(operation) {
 }
 
 /**
- * Build the server around a live service.
+ * Read GeoJSON files into a catalog and an in-memory adapter.
+ *
+ * Each file becomes one layer, named after the file so an agent can refer to
+ * it. Everything the builder declined to infer surfaces as a warning, exactly
+ * as an unconformant service's limitations do.
+ */
+async function fromFiles(files, { include, exclude, log }) {
+  const { readFile } = await import('node:fs/promises');
+  const { basename, extname, resolve } = await import('node:path');
+
+  /** @type {Record<string, object>} */
+  const sources = {};
+  for (const file of files) {
+    const path = resolve(file);
+    const layerId = basename(path, extname(path));
+    log(`Reading ${path}…`);
+
+    let parsed;
+    try {
+      parsed = JSON.parse(await readFile(path, 'utf8'));
+    } catch (error) {
+      throw new Error(`Could not read "${file}" as GeoJSON: ${error.message}`);
+    }
+    if (layerId in sources) {
+      throw new Error(`Two files map to the layer "${layerId}"; rename one.`);
+    }
+    sources[layerId] = parsed;
+  }
+
+  const derived = catalogFromGeoJSON(sources, { include, exclude });
+  const layers = Object.fromEntries(
+    derived.catalog.layers.map((layer) => [layer.id, sources[layer.id]])
+  );
+
+  return {
+    derived: { ...derived, conformance: { canFilter: true, local: true } },
+    adapter: createGeoJSONAdapter({ catalog: derived.catalog, layers }),
+  };
+}
+
+/**
+ * Build the server around a live service or local GeoJSON.
  *
  * @param {object} options
- * @param {string} options.serviceUrl - OGC API - Features landing page.
+ * @param {string} [options.serviceUrl] - OGC API - Features landing page.
+ * @param {string[]} [options.files] - GeoJSON files, one layer each. Use
+ *   instead of `serviceUrl`.
  * @param {string[]} [options.permissions] - Defaults to view and query.
- * @param {string[]} [options.include] - Restrict to these collection ids.
+ * @param {string[]} [options.include] - Restrict to these layer ids.
  * @param {string[]} [options.exclude]
  * @param {number} [options.maxPages]
  * @param {number} [options.limit]
@@ -76,6 +121,7 @@ function summarizeOperation(operation) {
 export async function createVoiceGisMcpServer(options) {
   const {
     serviceUrl,
+    files,
     permissions = DEFAULT_PERMISSIONS,
     include,
     exclude,
@@ -85,24 +131,40 @@ export async function createVoiceGisMcpServer(options) {
     log = () => {},
   } = options;
 
-  if (!serviceUrl) throw new TypeError('A serviceUrl is required.');
+  const hasFiles = Array.isArray(files) && files.length > 0;
+  if (!serviceUrl && !hasFiles) {
+    throw new TypeError('A serviceUrl or at least one GeoJSON file is required.');
+  }
+  if (serviceUrl && hasFiles) {
+    throw new TypeError('Pass a serviceUrl or files, not both.');
+  }
 
-  log(`Reading ${serviceUrl}…`);
-  const derived = await catalogFromOgcService(serviceUrl, {
-    fetch: fetchImpl,
-    include,
-    exclude,
-  });
-  for (const warning of derived.warnings) log(`warning: ${warning}`);
+  let derived;
+  let adapter;
 
-  const adapter = createOgcApiFeaturesAdapter({
-    baseUrl: serviceUrl,
-    catalog: derived.catalog,
-    geometryProperty: derived.geometryProperty,
-    fetch: fetchImpl,
-    maxPages,
-    limit,
-  });
+  if (hasFiles) {
+    ({ derived, adapter } = await fromFiles(files, { include, exclude, log }));
+    for (const warning of derived.warnings) log(`warning: ${warning}`);
+  } else {
+    log(`Reading ${serviceUrl}…`);
+    derived = await catalogFromOgcService(serviceUrl, {
+      fetch: fetchImpl,
+      include,
+      exclude,
+    });
+    for (const warning of derived.warnings) log(`warning: ${warning}`);
+
+    adapter = createOgcApiFeaturesAdapter({
+      baseUrl: serviceUrl,
+      catalog: derived.catalog,
+      geometryProperty: derived.geometryProperty,
+      fetch: fetchImpl,
+      maxPages,
+      limit,
+    });
+  }
+
+  const source = hasFiles ? `${files.length} local file(s)` : serviceUrl;
 
   // The operator decides what the agent may do. Confirmation-gated operations
   // have no operator present in an MCP session, so nothing is gated: anything
@@ -116,7 +178,7 @@ export async function createVoiceGisMcpServer(options) {
   });
 
   const summary = {
-    service: serviceUrl,
+    source,
     layers: derived.catalog.layers.length,
     catalogVersion: derived.catalog.version,
     permissions: [...permissions],
@@ -148,7 +210,7 @@ export async function createVoiceGisMcpServer(options) {
     inputSchema: {},
     annotations: { readOnlyHint: true, openWorldHint: false },
   }, async () => textResult({
-    service: serviceUrl,
+    source,
     catalogVersion: derived.catalog.version,
     permissionsGranted: [...permissions],
     layers: derived.catalog.layers.map((layer) => ({

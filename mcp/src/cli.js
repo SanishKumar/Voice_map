@@ -14,9 +14,12 @@ voicegis-mcp — query a spatial data service in plain language, safely.
 
 Usage:
   voicegis-mcp --service <url> [options]
+  voicegis-mcp --file <path> [--file <path> ...] [options]
 
 Options:
-  --service <url>       OGC API - Features landing page. Required.
+  --service <url>       OGC API - Features landing page.
+  --file <path>         GeoJSON file to serve. One layer per file, named after
+                        the file. Repeatable. Use instead of --service.
   --allow <perms>       Comma-separated permissions to grant.
                         Default: ${DEFAULT_PERMISSIONS.join(',')}
                         Available: view, query, analysis, export
@@ -26,26 +29,32 @@ Options:
   --max-pages <n>       Safety bound on pagination. Default 20.
   --help                Show this message.
 
-Example:
+Examples:
   voicegis-mcp --service https://demo.ldproxy.net/zoomstack
+  voicegis-mcp --file ./cities.geojson --file ./rivers.geojson
 
 The agent gets exactly the permissions granted here. Requests naming anything
 outside the service's own catalog are refused rather than guessed at.
 `;
 
+const REPEATABLE = new Set(['file']);
+
 function parseArgs(argv) {
-  /** @type {Record<string, string|boolean>} */
+  /** @type {Record<string, string|boolean|string[]>} */
   const flags = {};
   for (let i = 0; i < argv.length; i += 1) {
     const token = argv[i];
     if (!token.startsWith('--')) continue;
     const name = token.slice(2);
     const next = argv[i + 1];
-    if (next && !next.startsWith('--')) {
-      flags[name] = next;
-      i += 1;
+    const value = next && !next.startsWith('--') ? next : true;
+    if (value !== true) i += 1;
+
+    if (REPEATABLE.has(name) && value !== true) {
+      const existing = flags[name];
+      flags[name] = Array.isArray(existing) ? [...existing, value] : [value];
     } else {
-      flags[name] = true;
+      flags[name] = value;
     }
   }
   return flags;
@@ -58,15 +67,22 @@ const list = (value) => (typeof value === 'string'
 async function main() {
   const flags = parseArgs(process.argv.slice(2));
 
-  if (flags.help || !flags.service) {
+  const files = Array.isArray(flags.file) ? flags.file : undefined;
+
+  if (flags.help || (!flags.service && !files)) {
     process.stderr.write(USAGE);
     process.exit(flags.help ? 0 : 1);
+  }
+  if (flags.service && files) {
+    process.stderr.write('[voicegis-mcp] pass --service or --file, not both.\n');
+    process.exit(1);
   }
 
   const log = (message) => process.stderr.write(`[voicegis-mcp] ${message}\n`);
 
   const { server, summary } = await createVoiceGisMcpServer({
-    serviceUrl: String(flags.service),
+    serviceUrl: flags.service ? String(flags.service) : undefined,
+    files,
     permissions: list(flags.allow) || [...DEFAULT_PERMISSIONS],
     include: list(flags.include),
     exclude: list(flags.exclude),
