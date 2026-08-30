@@ -156,6 +156,56 @@ describe('catalogFromGeoJSON', () => {
       expect(catalog.layers[0].fields).toEqual([]);
       expect(warnings).toContainEqual(expect.stringContaining('no features'));
     });
+
+    it('leaves an empty layer its spatial capabilities', () => {
+      // Nothing was inspected, so there is no evidence geometry is absent.
+      // Narrowing here would break declare-now, setLayerData-later.
+      const [layer] = catalogFromGeoJSON({ pending: collection([]) }).catalog.layers;
+
+      expect(layer.capabilities).toContain(OPERATION.QUERY_SPATIAL_SELECT);
+      expect(layer.capabilities).toContain(OPERATION.ANALYSIS_BUFFER);
+    });
+  });
+
+  /**
+   * SpatialCatalog resolves names case-insensitively and throws on a name two
+   * things answer to. A derived catalog the caller cannot hand-edit must
+   * therefore never produce one, however untidy the source data is.
+   */
+  describe('name collisions always yield a constructible catalog', () => {
+    it('keeps one of two properties differing only in case', () => {
+      const { catalog, warnings } = catalogFromGeoJSON({
+        a: collection([point([0, 0], { NAME: 'x', name: 'y' })]),
+      });
+
+      expect(catalog.layers[0].fields.map((field) => field.id)).toEqual(['NAME']);
+      expect(warnings).toContainEqual(expect.stringContaining('another spelling of "NAME"'));
+      expect(() => new SpatialCatalog(catalog)).not.toThrow();
+    });
+
+    it('keeps one of two layers differing only in case', () => {
+      const { catalog, warnings } = catalogFromGeoJSON({ Cities: CITIES, cities: CITIES });
+
+      expect(catalog.layers.map((layer) => layer.id)).toEqual(['Cities']);
+      expect(warnings).toContainEqual(expect.stringContaining('another spelling of "Cities"'));
+      expect(() => new SpatialCatalog(catalog)).not.toThrow();
+    });
+
+    it('skips a blank layer name instead of throwing from the catalog', () => {
+      const { catalog, warnings } = catalogFromGeoJSON({ '': CITIES, real: CITIES });
+
+      expect(catalog.layers.map((layer) => layer.id)).toEqual(['real']);
+      expect(warnings).toContainEqual(expect.stringContaining('blank name'));
+      expect(() => new SpatialCatalog(catalog)).not.toThrow();
+    });
+
+    it('ignores properties that are an array rather than an object', () => {
+      const { catalog } = catalogFromGeoJSON({
+        a: collection([{ type: 'Feature', geometry: null, properties: ['x', 'y'] }]),
+      });
+
+      expect(catalog.layers[0].fields).toEqual([]);
+    });
   });
 
   describe('sampling', () => {

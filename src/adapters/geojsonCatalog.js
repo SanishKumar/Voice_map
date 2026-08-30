@@ -16,7 +16,13 @@
  *
  * Capabilities are narrowed per layer for the same reason. A layer whose
  * features carry no geometry cannot answer a proximity query or a buffer, so
- * those operations are not offered on it.
+ * those operations are not offered on it. Narrowing needs evidence, though:
+ * an empty layer keeps them, since nothing was inspected either way.
+ *
+ * Whatever the source data looks like, the catalog handed back is one
+ * `SpatialCatalog` will accept. Names that collide case-insensitively are
+ * dropped with a warning rather than left to throw, because a caller cannot
+ * hand-edit a catalog that was derived.
  *
  * @module adapters/geojsonCatalog
  */
@@ -83,7 +89,7 @@ function resolveType(kinds) {
 /** Walk a layer's features once, collecting everything the catalog needs. */
 function describeLayer(layerId, features, sampleSize) {
   const limit = Math.min(features.length, sampleSize);
-  /** @type {Map<string, {kinds:Set<string>, present:number}>} */
+  /** @type {Map<string, Set<string>>} */
   const properties = new Map();
   let withGeometry = 0;
   let unnamed = 0;
@@ -92,8 +98,10 @@ function describeLayer(layerId, features, sampleSize) {
     const feature = features[i];
     if (feature?.geometry) withGeometry += 1;
 
+    // An array would enumerate as fields named "0" and "1", which is a catalog
+    // describing nothing that exists.
     const bag = feature?.properties;
-    if (!bag || typeof bag !== 'object') continue;
+    if (!bag || typeof bag !== 'object' || Array.isArray(bag)) continue;
 
     for (const [name, value] of Object.entries(bag)) {
       if (!name.trim()) {
@@ -102,13 +110,12 @@ function describeLayer(layerId, features, sampleSize) {
       }
       if (value === null || value === undefined) continue;
 
-      let entry = properties.get(name);
-      if (!entry) {
-        entry = { kinds: new Set(), present: 0 };
-        properties.set(name, entry);
+      let kinds = properties.get(name);
+      if (!kinds) {
+        kinds = new Set();
+        properties.set(name, kinds);
       }
-      entry.kinds.add(kindOf(value));
-      entry.present += 1;
+      kinds.add(kindOf(value));
     }
   }
 
@@ -160,19 +167,44 @@ export function catalogFromGeoJSON(source, options = {}) {
     throw new TypeError('options.sampleSize must be a positive number.');
   }
 
-  let ids = Object.keys(entries);
+  let requested = Object.keys(entries);
   if (options.include) {
     const wanted = new Set(options.include);
-    ids = ids.filter((id) => wanted.has(id));
+    requested = requested.filter((id) => wanted.has(id));
   }
   if (options.exclude) {
     const unwanted = new Set(options.exclude);
-    ids = ids.filter((id) => !unwanted.has(id));
+    requested = requested.filter((id) => !unwanted.has(id));
   }
 
   const warnings = [];
+
+  // Names resolve case-insensitively, so "Cities" and "cities" are one name to
+  // a speaker and SpatialCatalog rejects the pair outright. Dropping the later
+  // one costs a layer and says so; keeping it would throw on a whole catalog
+  // the caller cannot edit, because this one was derived rather than written.
+  const ids = [];
+  const seenLayers = new Map();
+  for (const id of requested) {
+    const key = id.trim().toLowerCase();
+    if (!key) {
+      warnings.push('A layer with a blank name was skipped; every layer needs an id.');
+      continue;
+    }
+    const owner = seenLayers.get(key);
+    if (owner !== undefined) {
+      warnings.push(
+        `Layer "${id}" is another spelling of "${owner}" and was skipped; `
+        + 'layer names resolve case-insensitively.'
+      );
+      continue;
+    }
+    seenLayers.set(key, id);
+    ids.push(id);
+  }
+
   // Layer names are unique across the catalog; field names only within a layer.
-  const claimedLayers = new Set(ids.map((id) => id.toLowerCase()));
+  const claimedLayers = new Set(seenLayers.keys());
   const layers = [];
   const summary = [];
 
@@ -204,8 +236,22 @@ export function catalogFromGeoJSON(source, options = {}) {
 
     const fields = [];
     const claimedFields = new Set([...properties.keys()].map((name) => name.toLowerCase()));
+    const seenFields = new Map();
 
-    for (const [name, { kinds }] of properties) {
+    for (const [name, kinds] of properties) {
+      // Same case-insensitive collision as layers, one scope down. A shapefile
+      // converted to GeoJSON routinely carries both NAME and name.
+      const key = name.toLowerCase();
+      const owner = seenFields.get(key);
+      if (owner !== undefined) {
+        warnings.push(
+          `Property "${name}" on layer "${layerId}" is another spelling of "${owner}" `
+          + 'and was skipped; field names resolve case-insensitively.'
+        );
+        continue;
+      }
+      seenFields.set(key, name);
+
       if (kinds.has('structured')) {
         warnings.push(
           `Property "${name}" on layer "${layerId}" holds objects, arrays, or non-finite `
@@ -230,8 +276,12 @@ export function catalogFromGeoJSON(source, options = {}) {
       });
     }
 
+    // Narrowing needs evidence of absent geometry, which an empty layer does
+    // not provide. Withholding there would quietly cripple the common pattern
+    // of declaring a layer now and calling setLayerData once the fetch lands.
     const hasGeometry = withGeometry > 0;
-    if (!hasGeometry && features.length > 0) {
+    const inspected = sampled > 0;
+    if (inspected && !hasGeometry) {
       warnings.push(
         `No feature in "${layerId}" carries geometry, so proximity selection and buffering `
         + 'are not offered on it.'
@@ -239,7 +289,7 @@ export function catalogFromGeoJSON(source, options = {}) {
     }
 
     const capabilities = GEOJSON_ADAPTER_CAPABILITIES.filter(
-      (operation) => hasGeometry || !SPATIAL_OPERATIONS.includes(operation)
+      (operation) => hasGeometry || !inspected || !SPATIAL_OPERATIONS.includes(operation)
     );
 
     const aliases = claimAliases(claimedLayers, aliasesFor(layerId, label));

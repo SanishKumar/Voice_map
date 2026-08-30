@@ -139,6 +139,30 @@ report an empty result that looks like a real answer. Attribute operations are
 still offered on such a layer, so a non-spatial table is useful rather than
 excluded.
 
+Narrowing requires evidence. An **empty** layer keeps its spatial capabilities,
+because nothing was inspected either way — otherwise declaring a layer now and
+calling `setLayerData` when a fetch lands would leave it permanently unable to
+answer a proximity query.
+
+#### The catalog always constructs
+
+`SpatialCatalog` resolves names case-insensitively and throws when two things
+answer to one name. Source data does not always cooperate: a shapefile
+converted to GeoJSON routinely carries both `NAME` and `name`. Since a derived
+catalog is not something the caller can hand-edit, the builder drops the later
+of any two names colliding case-insensitively — layers and fields alike — and
+reports it:
+
+```
+Property "name" on layer "roads" is another spelling of "NAME" and was
+skipped; field names resolve case-insensitively.
+```
+
+The dropped one was unreachable anyway: a speaker asking for "name" could
+never have specified which of the two they meant. Blank layer names and
+`properties` that is an array rather than an object are skipped on the same
+grounds.
+
 Everything the builder declined to infer is reported in `warnings`, and
 `layers` gives per-layer `fieldCount`, `featureCount`, and `geometryCount` so
 an unexpected result is traceable to what was in the file.
