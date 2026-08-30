@@ -3,9 +3,6 @@
 An MCP server that lets an agent query a spatial data service in plain
 language — without being able to invent a field, a layer, or a permission.
 
-> **Pre-release.** Not yet published. The `voicegis` dependency is a local file
-> link; switch it to a version range before publishing.
-
 ## The problem
 
 Give a model a spatial API and it will write queries. Some of them reference
@@ -26,9 +23,10 @@ no way to tell that from a correct answer.
 
 The agent sends a request in plain language. It never writes a query string.
 
-1. **Ground.** The catalog is derived from the service itself — `/collections`
-   for layers, `/collections/{id}/queryables` for typed fields. A request
-   naming anything outside it is refused, with the reason.
+1. **Ground.** The catalog is derived from the data itself — from a service,
+   `/collections` for layers and `/collections/{id}/queryables` for typed
+   fields; from a file, the properties actually present on the features. A
+   request naming anything outside it is refused, with the reason.
 2. **Authorize.** The operator grants permissions when starting the server. The
    agent gets those and nothing more.
 3. **Execute.** Only then, and every operation comes back with a receipt.
@@ -39,8 +37,17 @@ reaching the agent as a confident wrong answer.
 
 ## Usage
 
+Point it at a live OGC API - Features service:
+
 ```bash
-node src/cli.js --service https://demo.ldproxy.net/zoomstack
+npx voicegis-mcp --service https://demo.ldproxy.net/zoomstack
+```
+
+Or at GeoJSON you already have, with no service involved. One layer per file,
+named after the file:
+
+```bash
+npx voicegis-mcp --file ./cities.geojson --file ./rivers.geojson
 ```
 
 In an MCP client config:
@@ -60,12 +67,16 @@ In an MCP client config:
 
 | Flag | Meaning |
 |---|---|
-| `--service <url>` | OGC API - Features landing page. Required. |
+| `--service <url>` | OGC API - Features landing page. |
+| `--file <path>` | GeoJSON file to serve, one layer per file, named after the file. Repeatable. Use instead of `--service`. |
 | `--allow <perms>` | Permissions to grant. Default `view,query`. Also `analysis`, `export`. |
-| `--include <ids>` | Only expose these collections. |
-| `--exclude <ids>` | Skip these collections. |
-| `--limit <n>` | Page size requested from the service. Default 500. |
-| `--max-pages <n>` | Pagination bound. Default 20. |
+| `--include <ids>` | Only expose these layers. |
+| `--exclude <ids>` | Skip these layers. |
+| `--limit <n>` | Page size requested from the service. Default 500. Service mode only. |
+| `--max-pages <n>` | Pagination bound. Default 20. Service mode only. |
+
+One source is required, and only one: `--service` and `--file` together is an
+error rather than a silent precedence rule.
 
 The default is read-only. Exporting data requires `--allow view,query,export`,
 which is a decision the operator makes once, not one the agent can talk its way

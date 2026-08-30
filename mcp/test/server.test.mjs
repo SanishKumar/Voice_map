@@ -238,3 +238,140 @@ test('the catalog resource is readable', async () => {
   assert.equal(catalog.layers[0].id, 'airports');
   assert.match(catalog.version, /^ogc:example\.org:/);
 });
+
+/* ====================================================================== *
+ * Local GeoJSON source
+ *
+ * The service path requires a live, conformant endpoint, which is the
+ * single biggest barrier to trying this. A file has to reach the same
+ * safety behaviour: grounded in what the data actually contains, and
+ * refusing everything else.
+ * ====================================================================== */
+
+const CITIES = {
+  type: 'FeatureCollection',
+  features: [
+    { type: 'Feature', properties: { name: 'Amsterdam', pop_max: 1031000, founded: '1275-10-27' }, geometry: { type: 'Point', coordinates: [4.9, 52.4] } },
+    { type: 'Feature', properties: { name: 'Rotterdam', pop_max: 1004000, founded: '1340-06-07' }, geometry: { type: 'Point', coordinates: [4.5, 51.9] } },
+    { type: 'Feature', properties: { name: 'Utrecht', pop_max: 639000, founded: '1122-06-02' }, geometry: { type: 'Point', coordinates: [5.1, 52.1] } },
+  ],
+};
+
+async function writeFixture(name, body) {
+  const { mkdtemp, writeFile } = await import('node:fs/promises');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const dir = await mkdtemp(join(tmpdir(), 'voicegis-mcp-'));
+  const path = join(dir, name);
+  await writeFile(path, JSON.stringify(body), 'utf8');
+  return path;
+}
+
+async function connectFiles(files, options = {}) {
+  const { server, summary } = await createVoiceGisMcpServer({
+    files,
+    ...options,
+  });
+  const client = new Client({ name: 'test', version: '1.0.0' });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+  return { client, summary };
+}
+
+test('a GeoJSON file becomes a layer named after it', async () => {
+  const path = await writeFixture('cities.geojson', CITIES);
+  const { client, summary } = await connectFiles([path]);
+
+  assert.equal(summary.layers, 1);
+  assert.match(summary.catalogVersion, /^geojson:/);
+
+  const described = parse(await client.callTool({ name: 'describe_data', arguments: {} }));
+  assert.equal(described.layers[0].id, 'cities');
+  assert.deepEqual(
+    described.layers[0].fields.map((field) => field.id).sort(),
+    ['founded', 'name', 'pop_max']
+  );
+  assert.equal(
+    described.layers[0].fields.find((field) => field.id === 'pop_max').type,
+    'number'
+  );
+});
+
+test('a file-backed layer answers attribute and spatial queries', async () => {
+  const path = await writeFixture('cities.geojson', CITIES);
+  const { client } = await connectFiles([path]);
+
+  const counted = parse(await client.callTool({
+    name: 'run_command',
+    arguments: { request: 'count cities' },
+  }));
+  assert.equal(counted.executed, true);
+  assert.equal(counted.status, 'succeeded');
+  const count = counted.results.find((result) => result.type === 'query.count');
+  assert.equal(count.value.count, 3);
+
+  const filtered = parse(await client.callTool({
+    name: 'run_command',
+    arguments: {
+      request: 'show cities where pop_max is greater than 1000000',
+      includeFeatures: true,
+    },
+  }));
+  assert.equal(filtered.status, 'succeeded');
+  assert.deepEqual(
+    filtered.features.cities.map((feature) => feature.properties.name).sort(),
+    ['Amsterdam', 'Rotterdam'],
+    'Utrecht is under a million and must not come back'
+  );
+
+  const near = parse(await client.callTool({
+    name: 'run_command',
+    arguments: { request: 'select cities within 30 kilometers of cities' },
+  }));
+  assert.equal(near.executed, true, 'geometry is present, so spatial select is offered');
+});
+
+test('a file-backed layer refuses what the data does not contain', async () => {
+  const path = await writeFixture('cities.geojson', CITIES);
+  const { client } = await connectFiles([path]);
+
+  const badField = parse(await client.callTool({
+    name: 'preview_command',
+    arguments: { request: 'filter cities where elevation is over 5' },
+  }));
+  assert.equal(badField.status, 'needs_input');
+  assert.equal(badField.issues[0].code, 'unknown_field');
+
+  const badLayer = parse(await client.callTool({
+    name: 'preview_command',
+    arguments: { request: 'count harbours' },
+  }));
+  assert.equal(badLayer.status, 'needs_input');
+  assert.equal(badLayer.issues[0].code, 'unknown_layer');
+});
+
+test('several files become several layers', async () => {
+  const cities = await writeFixture('cities.geojson', CITIES);
+  const ports = await writeFixture('ports.geojson', CITIES);
+  const { summary } = await connectFiles([cities, ports]);
+
+  assert.equal(summary.layers, 2);
+});
+
+test('a source must be given, and only one kind', async () => {
+  await assert.rejects(
+    () => createVoiceGisMcpServer({}),
+    /serviceUrl or at least one GeoJSON file/
+  );
+  await assert.rejects(
+    () => createVoiceGisMcpServer({ serviceUrl: 'https://example.org', files: ['x.geojson'] }),
+    /not both/
+  );
+});
+
+test('an unreadable file is reported, not guessed at', async () => {
+  await assert.rejects(
+    () => createVoiceGisMcpServer({ files: ['./definitely-not-here.geojson'] }),
+    /Could not read/
+  );
+});
